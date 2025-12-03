@@ -2,16 +2,15 @@ import { initializeApp } from "firebase/app";
 import { getDatabase, ref, onValue, set } from "firebase/database";
 import { StreamStatus } from "../types";
 
-// --- COLE SUAS CREDENCIAIS DO FIREBASE AQUI ---
-// Você encontra essas informações no Console do Firebase > Configurações do Projeto
+// Configuração oficial fornecida
 const firebaseConfig = {
-  apiKey: "SUA_API_KEY_AQUI",
-  authDomain: "SEU_PROJETO.firebaseapp.com",
-  databaseURL: "https://SEU_PROJETO-default-rtdb.firebaseio.com",
-  projectId: "SEU_PROJECT_ID",
-  storageBucket: "SEU_PROJETO.appspot.com",
-  messagingSenderId: "SEU_SENDER_ID",
-  appId: "SEU_APP_ID"
+  apiKey: "AIzaSyBscsAkO_yJYfVVtCBh3rNF8Cm51_HLW54",
+  authDomain: "teste-rede-fcb99.firebaseapp.com",
+  databaseURL: "https://teste-rede-fcb99-default-rtdb.firebaseio.com",
+  projectId: "teste-rede-fcb99",
+  storageBucket: "teste-rede-fcb99.firebasestorage.app",
+  messagingSenderId: "1006477304115",
+  appId: "1:1006477304115:web:8e2fa37efeb6a45fdf5e46"
 };
 
 // Initialize Firebase
@@ -21,11 +20,11 @@ try {
     db = getDatabase(app);
     console.log("Firebase initialized successfully");
 } catch (error) {
-    console.warn("Erro ao inicializar Firebase. Verifique se você preencheu o firebaseConfig em services/firebase.ts");
-    console.error(error);
+    console.error("Erro ao inicializar Firebase:", error);
 }
 
 // Subscribe to stream status changes (Viewer)
+// Essa função fica "ouvindo" o banco de dados. Quando muda lá, avisa o site.
 export const subscribeToStreamStatus = (callback: (status: StreamStatus) => void) => {
   if (!db) return () => {};
   
@@ -36,7 +35,7 @@ export const subscribeToStreamStatus = (callback: (status: StreamStatus) => void
     if (data) {
       callback(data as StreamStatus);
     } else {
-        // Default if empty
+        // Se não tiver nada no banco, assume OFFLINE
         callback(StreamStatus.OFFLINE);
     }
   });
@@ -45,12 +44,18 @@ export const subscribeToStreamStatus = (callback: (status: StreamStatus) => void
 };
 
 // Update stream status (Admin)
+// Essa função envia o comando para o banco de dados.
 export const updateStreamStatus = async (status: StreamStatus) => {
   if (!db) {
-    alert("Firebase não configurado! Cole suas chaves no arquivo services/firebase.ts");
+    console.error("Firebase database not initialized");
     return;
   }
   
-  const statusRef = ref(db, 'stream/status');
-  await set(statusRef, status);
+  try {
+    const statusRef = ref(db, 'stream/status');
+    await set(statusRef, status);
+  } catch (error) {
+    console.error("Erro ao atualizar status da transmissão:", error);
+    alert("Erro ao conectar com o servidor. Verifique sua conexão.");
+  }
 };

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Radio, StopCircle, Camera, RefreshCcw, Mic, Settings } from 'lucide-react';
+import { Radio, StopCircle, Camera, RefreshCcw, Mic, Settings, AlertTriangle } from 'lucide-react';
 import { StreamStatus } from '../types';
 
 interface AdminPanelProps {
@@ -12,8 +12,9 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string>('');
 
-  // Initialize Camera
+  // Initialize Camera when facing mode changes
   useEffect(() => {
     startCamera();
     return () => {
@@ -21,26 +22,58 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
     };
   }, [facingMode]);
 
+  // Attach stream to video element whenever it becomes available and permitted
+  useEffect(() => {
+    if (videoRef.current && stream) {
+      videoRef.current.srcObject = stream;
+    }
+  }, [stream, hasPermission]);
+
   const startCamera = async () => {
     try {
+      // Clean up previous stream
       if (stream) {
         stream.getTracks().forEach(track => track.stop());
       }
       
-      const newStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: facingMode },
-        audio: true
-      });
-      
-      setStream(newStream);
-      setHasPermission(true);
-      
-      if (videoRef.current) {
-        videoRef.current.srcObject = newStream;
+      setErrorMsg('');
+      let newStream: MediaStream | null = null;
+
+      try {
+        // Try with requested constraints (e.g. specific camera)
+        newStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: facingMode },
+          audio: true
+        });
+      } catch (firstErr) {
+        console.warn("Preferred camera constraints failed, retrying with basic config...", firstErr);
+        // Fallback: Try any available video/audio
+        try {
+            newStream = await navigator.mediaDevices.getUserMedia({
+                video: true,
+                audio: true
+            });
+        } catch (secondErr) {
+             throw secondErr; // If basic fails, then we really have an error
+        }
       }
-    } catch (err) {
+      
+      if (newStream) {
+        setStream(newStream);
+        setHasPermission(true);
+      }
+      
+    } catch (err: any) {
       console.error("Error accessing camera:", err);
       setHasPermission(false);
+      // Simplify error message for user
+      let msg = "Não foi possível acessar a câmera.";
+      if (err.name === 'NotAllowedError') msg = "Permissão de câmera/microfone negada.";
+      else if (err.name === 'NotFoundError') msg = "Nenhuma câmera encontrada.";
+      else if (err.name === 'NotReadableError') msg = "A câmera já está em uso por outro app.";
+      else if (err.message) msg = err.message;
+      
+      setErrorMsg(msg);
     }
   };
 
@@ -56,7 +89,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
   };
 
   const handleStartStream = () => {
-    if (hasPermission) {
+    if (hasPermission && stream) {
         onUpdate(StreamStatus.LIVE);
     }
   };
@@ -91,10 +124,15 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
           
           <div className="aspect-video bg-black relative group flex items-center justify-center overflow-hidden">
               {hasPermission === false ? (
-                  <div className="text-center text-red-500 p-6">
-                      <Camera size={48} className="mx-auto mb-2 opacity-50" />
-                      <p>Acesso à câmera negado. Verifique as permissões.</p>
-                      <button onClick={startCamera} className="mt-4 px-4 py-2 bg-zinc-800 rounded text-white text-sm">Tentar Novamente</button>
+                  <div className="text-center text-red-500 p-6 flex flex-col items-center max-w-md">
+                      <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mb-4">
+                        <AlertTriangle size={32} />
+                      </div>
+                      <h3 className="text-white font-bold mb-2">Erro de Câmera</h3>
+                      <p className="text-sm text-zinc-400 mb-6">{errorMsg}</p>
+                      <button onClick={startCamera} className="px-6 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-full text-white text-sm font-bold transition-colors border border-zinc-700">
+                        Tentar Novamente
+                      </button>
                   </div>
               ) : (
                 <>
@@ -123,7 +161,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
                     <div className="absolute bottom-6 right-6 z-30 flex gap-2">
                          <button 
                             onClick={toggleCamera}
-                            className="p-3 bg-black/50 hover:bg-black/80 text-white rounded-full backdrop-blur-md border border-white/10 transition-all"
+                            className="p-3 bg-black/50 hover:bg-black/80 text-white rounded-full backdrop-blur-md border border-white/10 transition-all active:scale-95"
                             title="Virar Câmera"
                         >
                             <RefreshCcw size={20} />
@@ -140,7 +178,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
              {currentStatus !== StreamStatus.LIVE ? (
                 <button 
                   onClick={handleStartStream}
-                  disabled={!stream}
+                  disabled={!stream || !hasPermission}
                   className="w-full sm:w-auto flex items-center justify-center gap-2 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 disabled:from-zinc-800 disabled:to-zinc-800 disabled:text-zinc-500 disabled:cursor-not-allowed text-white px-12 py-4 rounded-lg font-bold tracking-wide shadow-lg transition-all transform hover:scale-105"
                 >
                   <Radio size={20} />
@@ -162,12 +200,12 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
           <div className="bg-zinc-900/50 border border-zinc-800 p-4 rounded-lg">
               <h3 className="text-zinc-400 text-xs font-bold uppercase tracking-wider mb-2">Status do Sistema</h3>
               <div className="flex items-center gap-2 text-green-500 text-sm">
-                  <div className="w-2 h-2 rounded-full bg-green-500"></div>
-                  Câmera Ativa
+                  <div className={`w-2 h-2 rounded-full ${stream ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                  {stream ? 'Câmera Ativa' : 'Câmera Inativa'}
               </div>
               <div className="flex items-center gap-2 text-green-500 text-sm mt-1">
-                  <div className="w-2 h-2 rounded-full bg-green-500"></div>
-                  Microfone Ativo
+                  <div className={`w-2 h-2 rounded-full ${stream ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                  {stream ? 'Microfone Ativo' : 'Microfone Inativo'}
               </div>
           </div>
           <div className="bg-zinc-900/50 border border-zinc-800 p-4 rounded-lg">
