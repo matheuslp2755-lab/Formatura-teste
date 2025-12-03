@@ -1,0 +1,8 @@
+{
+  "name": "Formatura EASP 2025 - MPLAY",
+  "description": "Plataforma de transmissão ao vivo para a Formatura EASP 2025, com painel administrativo e assistente de produção via IA.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
