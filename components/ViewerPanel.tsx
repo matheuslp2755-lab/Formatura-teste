@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Play, Volume2, VolumeX, Maximize, MessageCircle, Send, Users, Heart, Signal } from 'lucide-react';
+import { Volume2, VolumeX, Maximize, MessageCircle, Send, Users, Heart, Signal, Video } from 'lucide-react';
 import { StreamStatus, ChatMessage } from '../types';
 import { getEventAssistantResponse } from '../services/gemini';
 
@@ -8,7 +8,6 @@ interface ViewerPanelProps {
 }
 
 const ViewerPanel: React.FC<ViewerPanelProps> = ({ status }) => {
-  const [isMuted, setIsMuted] = useState(true);
   const [chatOpen, setChatOpen] = useState(false);
   const [chatInput, setChatInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -16,19 +15,25 @@ const ViewerPanel: React.FC<ViewerPanelProps> = ({ status }) => {
   ]);
   const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  
+  // Video simulation ref
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [muted, setMuted] = useState(true);
 
   // Scroll to bottom of chat
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, chatOpen]);
 
-  // Handle video mute state
+  // Handle Video Autoplay when Live
   useEffect(() => {
-    if (videoRef.current) {
-      videoRef.current.muted = isMuted;
+    if (status === StreamStatus.LIVE && videoRef.current) {
+        videoRef.current.play().catch(() => {
+            // Autoplay often fails without interaction, keep muted
+            setMuted(true);
+        });
     }
-  }, [isMuted]);
+  }, [status]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -58,14 +63,21 @@ const ViewerPanel: React.FC<ViewerPanelProps> = ({ status }) => {
     setIsTyping(false);
   };
 
+  const toggleMute = () => {
+    if (videoRef.current) {
+        videoRef.current.muted = !muted;
+        setMuted(!muted);
+    }
+  };
+
   return (
     <div className="flex flex-col lg:flex-row gap-6 max-w-7xl mx-auto w-full">
       {/* Video Player Section */}
       <div className="flex-1 flex flex-col gap-4">
         <div className="relative aspect-video bg-black rounded-xl overflow-hidden shadow-[0_0_40px_rgba(234,179,8,0.1)] group border border-zinc-800">
             
-            {/* Broadcast Overlay / Watermark - REQUESTED FEATURE */}
-            <div className="absolute top-6 left-6 z-20 select-none drop-shadow-md">
+            {/* Broadcast Overlay / Watermark */}
+            <div className="absolute top-6 left-6 z-20 select-none pointer-events-none drop-shadow-md">
                 <h2 className="text-white font-serif text-xl lg:text-2xl font-bold leading-none tracking-wide text-shadow">
                     Formatura EASP 2025
                 </h2>
@@ -79,86 +91,54 @@ const ViewerPanel: React.FC<ViewerPanelProps> = ({ status }) => {
 
             {status === StreamStatus.LIVE ? (
                 <>
+                  {/* Simulated Live Feed */}
                   <video
                     ref={videoRef}
-                    autoPlay
+                    src="https://cdn.coverr.co/videos/coverr-people-at-a-concert-with-hands-in-the-air-5178/1080p.mp4"
+                    className="w-full h-full object-cover"
                     loop
                     playsInline
-                    muted={isMuted} // Controlled by state
-                    className="w-full h-full object-cover"
-                  >
-                    {/* Placeholder graduation/event video loop for simulation */}
-                    <source src="https://assets.mixkit.co/videos/preview/mixkit-university-graduate-throwing-hats-in-the-air-slow-motion-32115-large.mp4" type="video/mp4" />
-                    Seu navegador não suporta a tag de vídeo.
-                  </video>
+                    muted={muted}
+                  />
                   
                   {/* LIVE Indicator Overlay */}
-                  <div className="absolute top-6 right-6 z-20 flex items-center gap-2 bg-red-600/90 backdrop-blur-sm text-white px-3 py-1 rounded-sm shadow-lg animate-pulse">
+                  <div className="absolute top-6 right-6 z-20 flex items-center gap-2 bg-red-600/90 backdrop-blur-sm text-white px-3 py-1 rounded-sm shadow-lg animate-pulse pointer-events-none">
                      <Signal size={14} />
                      <span className="text-xs font-bold tracking-widest uppercase">AO VIVO</span>
                   </div>
 
-                  {/* Play/Overlay for interaction */}
-                  <div className={`absolute inset-0 flex items-center justify-center transition-opacity duration-500 ${!isMuted ? 'opacity-0 pointer-events-none' : 'opacity-100 bg-black/40'}`}>
-                     {!isMuted ? null : (
-                         <button 
-                            onClick={() => setIsMuted(false)}
-                            className="group/btn flex flex-col items-center gap-4 transition-transform hover:scale-105"
-                         >
-                            <div className="w-20 h-20 rounded-full bg-black/50 border-2 border-white/30 backdrop-blur-sm flex items-center justify-center group-hover/btn:border-gold-500 group-hover/btn:text-gold-500 text-white transition-all">
-                                <VolumeX size={32} className="ml-1" />
-                            </div>
-                            <span className="text-white font-medium text-sm tracking-wider uppercase bg-black/60 px-4 py-1 rounded-full backdrop-blur">
-                                Clique para ativar o som
-                            </span>
-                        </button>
-                     )}
+                  {/* Player Controls (Custom) */}
+                  <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 to-transparent p-4 flex justify-between items-end opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                      <button 
+                        onClick={toggleMute}
+                        className="p-2 hover:bg-white/10 rounded-full text-white transition-colors"
+                      >
+                          {muted ? <VolumeX size={24} /> : <Volume2 size={24} />}
+                      </button>
+                      <div className="text-white/80 text-xs font-mono tracking-widest">
+                          SINAL RECEBIDO: 1080P/60
+                      </div>
                   </div>
                 </>
             ) : (
                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-900/95 text-white bg-[url('https://images.unsplash.com/photo-1523580494863-6f3031224c94?q=80&w=2070&auto=format&fit=crop')] bg-cover bg-center bg-blend-multiply">
                     <div className="mb-6 p-6 rounded-full bg-zinc-950/50 backdrop-blur border border-zinc-800 text-zinc-400">
-                        <Users size={48} />
+                        {status === StreamStatus.ENDED ? <Video size={48} /> : <Users size={48} />}
                     </div>
-                    <h3 className="text-3xl font-serif mb-3 text-center text-white">A transmissão começará em breve</h3>
+                    <h3 className="text-3xl font-serif mb-3 text-center text-white">
+                        {status === StreamStatus.ENDED ? "Transmissão Encerrada" : "Aguardando Sinal"}
+                    </h3>
                     <p className="text-zinc-300 font-light text-lg max-w-md text-center">
-                        Aguarde o início da cerimônia oficial.
+                        {status === StreamStatus.ENDED ? "Obrigado por acompanhar a Formatura EASP 2025." : "O operador está preparando a transmissão da câmera."}
                     </p>
-                    <div className="mt-8 flex items-center gap-3 text-gold-500/80 text-sm tracking-widest uppercase">
-                        <span className="w-2 h-2 rounded-full bg-gold-500 animate-pulse"></span>
-                        Sinal em Standby
-                    </div>
+                    {status !== StreamStatus.ENDED && (
+                        <div className="mt-8 flex items-center gap-3 text-gold-500/80 text-sm tracking-widest uppercase">
+                            <span className="w-2 h-2 rounded-full bg-gold-500 animate-pulse"></span>
+                            Standby
+                        </div>
+                    )}
                 </div>
             )}
-
-            {/* Player Controls Bar */}
-            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black via-black/80 to-transparent p-6 pt-12 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-6">
-                        <button onClick={() => setIsMuted(!isMuted)} className="text-white hover:text-gold-400 transition-colors focus:outline-none">
-                            {isMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}
-                        </button>
-                        
-                        {status === StreamStatus.LIVE && (
-                             <div className="flex items-center gap-2">
-                                <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shadow-[0_0_10px_#ef4444]"></span>
-                                <span className="text-white/90 font-medium text-sm tracking-wide">00:12:45</span>
-                             </div>
-                        )}
-                    </div>
-                    
-                    <div className="flex items-center gap-4">
-                        <div className="hidden sm:flex items-center gap-1 text-xs text-zinc-400 font-mono">
-                            <span>1080p</span>
-                            <span className="text-zinc-600">|</span>
-                            <span>60fps</span>
-                        </div>
-                        <button className="text-white hover:text-gold-400 transition-colors">
-                            <Maximize size={24} />
-                        </button>
-                    </div>
-                </div>
-            </div>
         </div>
 
         {/* Stream Info */}

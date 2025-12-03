@@ -16,18 +16,15 @@ function App() {
   useEffect(() => {
     const channel = new BroadcastChannel('mplay_sync_channel');
     
-    // Listen for updates from other tabs (e.g. Admin tab)
+    // Listen for updates from other tabs
     channel.onmessage = (event) => {
-      if (event.data && event.data.type === 'STATUS_UPDATE') {
+      if (event.data && event.data.type === 'SYNC_UPDATE') {
         setStatus(event.data.status);
       }
     };
 
-    // Also listen to storage events as a fallback/redundancy
     const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'mplay_stream_status' && e.newValue) {
-        setStatus(e.newValue as StreamStatus);
-      }
+      if (e.key === 'mplay_stream_status' && e.newValue) setStatus(e.newValue as StreamStatus);
     };
     window.addEventListener('storage', handleStorageChange);
 
@@ -37,13 +34,18 @@ function App() {
     };
   }, []);
 
-  const handleStatusChange = (newStatus: StreamStatus) => {
+  const handleUpdate = (newStatus: StreamStatus) => {
     setStatus(newStatus);
+    
     // Persist
     localStorage.setItem('mplay_stream_status', newStatus);
-    // Broadcast to other tabs
+    
+    // Broadcast
     const channel = new BroadcastChannel('mplay_sync_channel');
-    channel.postMessage({ type: 'STATUS_UPDATE', status: newStatus });
+    channel.postMessage({ 
+      type: 'SYNC_UPDATE', 
+      status: newStatus, 
+    });
     channel.close();
   };
 
@@ -83,10 +85,10 @@ function App() {
           <Routes>
             <Route path="/" element={<ViewerPanel status={status} />} />
             <Route path="/admin" element={
-              <div className="max-w-6xl mx-auto w-full h-[80vh]">
+              <div className="max-w-4xl mx-auto w-full">
                   <AdminPanel 
                     currentStatus={status} 
-                    onStatusChange={handleStatusChange} 
+                    onUpdate={handleUpdate} 
                   />
               </div>
             } />
