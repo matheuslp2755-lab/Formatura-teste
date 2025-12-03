@@ -9,6 +9,7 @@ interface AdminPanelProps {
 
 const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null); // Ref to track stream synchronously
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
@@ -16,49 +17,81 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
 
   // Initialize Camera when facing mode changes
   useEffect(() => {
-    startCamera();
+    let mounted = true;
+    
+    const init = async () => {
+      await startCamera();
+    };
+
+    init();
+
     return () => {
-      stopCamera();
+      mounted = false;
+      stopCameraInternal(); // Clean up on unmount/change
     };
   }, [facingMode]);
 
-  // Attach stream to video element whenever it becomes available and permitted
+  // Attach stream to video element whenever it becomes available
   useEffect(() => {
     if (videoRef.current && stream) {
       videoRef.current.srcObject = stream;
     }
   }, [stream, hasPermission]);
 
+  // Internal helper to stop tracks immediately without waiting for state update
+  const stopCameraInternal = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => {
+        try {
+            track.stop();
+        } catch (e) {
+            console.error("Error stopping track:", e);
+        }
+      });
+      streamRef.current = null;
+    }
+  };
+
   const startCamera = async () => {
+    // 1. Force stop previous stream
+    stopCameraInternal();
+    
+    // Clear state slightly to allow UI reset if needed, but keeping it smooth
+    setErrorMsg('');
+    
     try {
-      // Clean up previous stream
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-      }
-      
-      setErrorMsg('');
       let newStream: MediaStream | null = null;
+      
+      const constraints = {
+        video: { facingMode: facingMode },
+        audio: true
+      };
 
       try {
-        // Try with requested constraints (e.g. specific camera)
-        newStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: facingMode },
-          audio: true
-        });
-      } catch (firstErr) {
-        console.warn("Preferred camera constraints failed, retrying with basic config...", firstErr);
-        // Fallback: Try any available video/audio
+        // Attempt 1: Requested Constraints
+        newStream = await navigator.mediaDevices.getUserMedia(constraints);
+      } catch (firstErr: any) {
+        console.warn("Preferred camera constraints failed, attempting fallback...", firstErr);
+        
+        // If error is "NotReadableError" or "Could not start video source", wait a bit and retry
+        // This often fixes the issue on Windows/Android when switching cameras rapidly
+        if (firstErr.name === 'NotReadableError' || firstErr.message?.includes('Could not start video source')) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
+
+        // Attempt 2: Basic Constraints (System Default)
         try {
             newStream = await navigator.mediaDevices.getUserMedia({
                 video: true,
                 audio: true
             });
         } catch (secondErr) {
-             throw secondErr; // If basic fails, then we really have an error
+             throw secondErr; // If even basic fails, throw real error
         }
       }
       
       if (newStream) {
+        streamRef.current = newStream;
         setStream(newStream);
         setHasPermission(true);
       }
@@ -66,21 +99,15 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
     } catch (err: any) {
       console.error("Error accessing camera:", err);
       setHasPermission(false);
-      // Simplify error message for user
+      setStream(null);
+      
       let msg = "Não foi possível acessar a câmera.";
       if (err.name === 'NotAllowedError') msg = "Permissão de câmera/microfone negada.";
       else if (err.name === 'NotFoundError') msg = "Nenhuma câmera encontrada.";
-      else if (err.name === 'NotReadableError') msg = "A câmera já está em uso por outro app.";
+      else if (err.name === 'NotReadableError' || err.message?.includes('video source')) msg = "A câmera está em uso ou indisponível. Tente fechar outros apps.";
       else if (err.message) msg = err.message;
       
       setErrorMsg(msg);
-    }
-  };
-
-  const stopCamera = () => {
-    if (stream) {
-      stream.getTracks().forEach(track => track.stop());
-      setStream(null);
     }
   };
 
@@ -130,7 +157,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
                       </div>
                       <h3 className="text-white font-bold mb-2">Erro de Câmera</h3>
                       <p className="text-sm text-zinc-400 mb-6">{errorMsg}</p>
-                      <button onClick={startCamera} className="px-6 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-full text-white text-sm font-bold transition-colors border border-zinc-700">
+                      <button onClick={() => startCamera()} className="px-6 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-full text-white text-sm font-bold transition-colors border border-zinc-700">
                         Tentar Novamente
                       </button>
                   </div>
