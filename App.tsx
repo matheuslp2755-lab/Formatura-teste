@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Link, Navigate } from 'react-router-dom';
 import ViewerPanel from './components/ViewerPanel';
 import AdminPanel from './components/AdminPanel';
@@ -6,7 +6,46 @@ import { StreamStatus } from './types';
 import { Video } from 'lucide-react';
 
 function App() {
-  const [status, setStatus] = useState<StreamStatus>(StreamStatus.OFFLINE);
+  // Initialize state from localStorage to persist across refreshes
+  const [status, setStatus] = useState<StreamStatus>(() => {
+    const saved = localStorage.getItem('mplay_stream_status');
+    return (saved as StreamStatus) || StreamStatus.OFFLINE;
+  });
+
+  // Cross-tab synchronization
+  useEffect(() => {
+    const channel = new BroadcastChannel('mplay_sync_channel');
+    
+    // Listen for updates from other tabs (e.g. Admin tab)
+    channel.onmessage = (event) => {
+      if (event.data && event.data.type === 'STATUS_UPDATE') {
+        setStatus(event.data.status);
+      }
+    };
+
+    // Also listen to storage events as a fallback/redundancy
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'mplay_stream_status' && e.newValue) {
+        setStatus(e.newValue as StreamStatus);
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+
+    return () => {
+      channel.close();
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, []);
+
+  const handleStatusChange = (newStatus: StreamStatus) => {
+    setStatus(newStatus);
+    // Persist
+    localStorage.setItem('mplay_stream_status', newStatus);
+    // Broadcast to other tabs
+    const channel = new BroadcastChannel('mplay_sync_channel');
+    channel.postMessage({ type: 'STATUS_UPDATE', status: newStatus });
+    channel.close();
+  };
 
   return (
     <HashRouter>
@@ -47,7 +86,7 @@ function App() {
               <div className="max-w-6xl mx-auto w-full h-[80vh]">
                   <AdminPanel 
                     currentStatus={status} 
-                    onStatusChange={setStatus} 
+                    onStatusChange={handleStatusChange} 
                   />
               </div>
             } />
