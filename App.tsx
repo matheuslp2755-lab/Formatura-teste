@@ -1,63 +1,61 @@
 import React, { useState, useEffect } from 'react';
-import { HashRouter, Routes, Route, Link, Navigate } from 'react-router-dom';
+import { HashRouter, Routes, Route, Link, Navigate, useNavigate } from 'react-router-dom';
 import ViewerPanel from './components/ViewerPanel';
 import AdminPanel from './components/AdminPanel';
+import Login from './components/Login';
 import { StreamStatus } from './types';
-import { Video } from 'lucide-react';
+import { Video, LogOut } from 'lucide-react';
+import { subscribeToStreamStatus, updateStreamStatus } from './services/firebase';
 
-function App() {
-  // Initialize state from localStorage to persist across refreshes
-  const [status, setStatus] = useState<StreamStatus>(() => {
-    const saved = localStorage.getItem('mplay_stream_status');
-    return (saved as StreamStatus) || StreamStatus.OFFLINE;
-  });
+// Componente Wrapper para proteger a rota Admin
+const ProtectedAdminRoute = ({ 
+  isAuthenticated, 
+  onLogin, 
+  children 
+}: { 
+  isAuthenticated: boolean; 
+  onLogin: () => void;
+  children?: React.ReactNode 
+}) => {
+  if (!isAuthenticated) {
+    return <Login onLoginSuccess={onLogin} />;
+  }
+  return <>{children}</>;
+};
 
-  // Cross-tab synchronization
+function AppContent() {
+  const [status, setStatus] = useState<StreamStatus>(StreamStatus.OFFLINE);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const navigate = useNavigate();
+
+  // Escutar mudanças no Firebase (Global para todo o app)
   useEffect(() => {
-    const channel = new BroadcastChannel('mplay_sync_channel');
-    
-    // Listen for updates from other tabs
-    channel.onmessage = (event) => {
-      if (event.data && event.data.type === 'SYNC_UPDATE') {
-        setStatus(event.data.status);
-      }
-    };
+    // Inscreve para receber atualizações do Firebase em tempo real
+    const unsubscribe = subscribeToStreamStatus((newStatus) => {
+      setStatus(newStatus);
+    });
 
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'mplay_stream_status' && e.newValue) setStatus(e.newValue as StreamStatus);
-    };
-    window.addEventListener('storage', handleStorageChange);
-
-    return () => {
-      channel.close();
-      window.removeEventListener('storage', handleStorageChange);
-    };
+    return () => unsubscribe();
   }, []);
 
-  const handleUpdate = (newStatus: StreamStatus) => {
-    setStatus(newStatus);
-    
-    // Persist
-    localStorage.setItem('mplay_stream_status', newStatus);
-    
-    // Broadcast
-    const channel = new BroadcastChannel('mplay_sync_channel');
-    channel.postMessage({ 
-      type: 'SYNC_UPDATE', 
-      status: newStatus, 
-    });
-    channel.close();
+  const handleAdminUpdate = (newStatus: StreamStatus) => {
+    // Atualiza o Firebase em vez de estado local
+    updateStreamStatus(newStatus);
+  };
+
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    navigate('/');
   };
 
   return (
-    <HashRouter>
-      <div className="min-h-screen bg-black text-gray-100 flex flex-col font-sans selection:bg-gold-500/30">
+    <div className="min-h-screen bg-black text-gray-100 flex flex-col font-sans selection:bg-gold-500/30">
         
         {/* Navigation / Header */}
         <nav className="border-b border-zinc-900 bg-black/50 backdrop-blur-md sticky top-0 z-40">
           <div className="max-w-7xl mx-auto px-4 lg:px-8 h-16 flex items-center justify-between">
             <Link to="/" className="flex items-center gap-3 group">
-              <div className="w-8 h-8 bg-gold-600 rounded flex items-center justify-center">
+              <div className="w-8 h-8 bg-gold-600 rounded flex items-center justify-center shadow-lg shadow-gold-500/10">
                 <Video className="text-black" size={18} />
               </div>
               <div className="flex flex-col">
@@ -66,16 +64,27 @@ function App() {
               </div>
             </Link>
 
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-6">
               {status === StreamStatus.LIVE && (
-                <span className="hidden md:flex items-center gap-2 px-3 py-1 bg-red-900/20 border border-red-900/50 rounded-full text-red-500 text-xs font-bold animate-pulse">
+                <span className="flex items-center gap-2 px-3 py-1 bg-red-900/20 border border-red-900/50 rounded-full text-red-500 text-xs font-bold animate-pulse shadow-[0_0_15px_rgba(220,38,38,0.2)]">
                   <span className="w-2 h-2 rounded-full bg-red-500"></span>
                   AO VIVO AGORA
                 </span>
               )}
-              <Link to="/admin" className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors">
-                Área Admin
-              </Link>
+              
+              {isAuthenticated ? (
+                  <button 
+                    onClick={handleLogout}
+                    className="flex items-center gap-2 text-xs text-zinc-500 hover:text-red-400 transition-colors uppercase font-bold tracking-wider"
+                  >
+                    <LogOut size={14} />
+                    Sair
+                  </button>
+              ) : (
+                  <Link to="/admin" className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors font-medium">
+                    Área Admin
+                  </Link>
+              )}
             </div>
           </div>
         </nav>
@@ -84,14 +93,21 @@ function App() {
         <main className="flex-1 p-4 lg:p-8 flex flex-col">
           <Routes>
             <Route path="/" element={<ViewerPanel status={status} />} />
+            
             <Route path="/admin" element={
-              <div className="max-w-4xl mx-auto w-full">
-                  <AdminPanel 
-                    currentStatus={status} 
-                    onUpdate={handleUpdate} 
-                  />
-              </div>
+              <ProtectedAdminRoute 
+                isAuthenticated={isAuthenticated} 
+                onLogin={() => setIsAuthenticated(true)}
+              >
+                  <div className="max-w-4xl mx-auto w-full animate-in fade-in duration-500">
+                      <AdminPanel 
+                        currentStatus={status} 
+                        onUpdate={handleAdminUpdate} 
+                      />
+                  </div>
+              </ProtectedAdminRoute>
             } />
+            
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>
@@ -109,6 +125,13 @@ function App() {
           </div>
         </footer>
       </div>
+  );
+}
+
+function App() {
+  return (
+    <HashRouter>
+      <AppContent />
     </HashRouter>
   );
 }
