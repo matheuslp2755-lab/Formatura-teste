@@ -29,7 +29,6 @@ const ViewerPanel: React.FC<ViewerPanelProps> = ({ status }) => {
   useEffect(() => {
     if (status === StreamStatus.LIVE && videoRef.current) {
         videoRef.current.play().catch(() => {
-            // Autoplay often fails without interaction, keep muted
             setMuted(true);
         });
     }
@@ -122,19 +121,19 @@ const ViewerPanel: React.FC<ViewerPanelProps> = ({ status }) => {
                 </>
             ) : (
                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-900/95 text-white bg-[url('https://images.unsplash.com/photo-1523580494863-6f3031224c94?q=80&w=2070&auto=format&fit=crop')] bg-cover bg-center bg-blend-multiply">
-                    <div className="mb-6 p-6 rounded-full bg-zinc-950/50 backdrop-blur border border-zinc-800 text-zinc-400">
-                        {status === StreamStatus.ENDED ? <Video size={48} /> : <Users size={48} />}
+                    <div className="mb-6 p-6 rounded-full bg-zinc-950/50 backdrop-blur border border-zinc-800 text-zinc-400 animate-pulse">
+                        {status === StreamStatus.ENDED ? <Video size={48} /> : <Signal size={48} />}
                     </div>
                     <h3 className="text-3xl font-serif mb-3 text-center text-white">
                         {status === StreamStatus.ENDED ? "Transmissão Encerrada" : "Aguardando Sinal"}
                     </h3>
                     <p className="text-zinc-300 font-light text-lg max-w-md text-center">
-                        {status === StreamStatus.ENDED ? "Obrigado por acompanhar a Formatura EASP 2025." : "O operador está preparando a transmissão da câmera."}
+                        {status === StreamStatus.ENDED ? "Obrigado por acompanhar a Formatura EASP 2025." : "Conectando ao feed de vídeo..."}
                     </p>
                     {status !== StreamStatus.ENDED && (
                         <div className="mt-8 flex items-center gap-3 text-gold-500/80 text-sm tracking-widest uppercase">
                             <span className="w-2 h-2 rounded-full bg-gold-500 animate-pulse"></span>
-                            Standby
+                            Aguardando Diretor
                         </div>
                     )}
                 </div>
@@ -179,9 +178,6 @@ const ViewerPanel: React.FC<ViewerPanelProps> = ({ status }) => {
                     <Heart size={18} className="group-hover:text-red-500 transition-colors group-hover:fill-red-500" />
                     Curtir Transmissão
                 </button>
-                <button className="flex items-center gap-2 px-5 py-2.5 bg-zinc-800 hover:bg-zinc-700 rounded-full text-sm text-white font-medium transition-colors ml-auto">
-                    Compartilhar
-                </button>
             </div>
         </div>
       </div>
@@ -218,15 +214,6 @@ const ViewerPanel: React.FC<ViewerPanelProps> = ({ status }) => {
                     </span>
                 </div>
             ))}
-            {isTyping && (
-                 <div className="flex justify-start animate-pulse">
-                    <div className="bg-zinc-800/50 rounded-2xl p-4 flex gap-1.5">
-                        <span className="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce"></span>
-                        <span className="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce delay-100"></span>
-                        <span className="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce delay-200"></span>
-                    </div>
-                 </div>
-            )}
             <div ref={messagesEndRef} />
         </div>
 

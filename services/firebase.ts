@@ -20,7 +20,6 @@ const LOCAL_STORAGE_KEY = 'mplay_stream_status';
 // Initialize Firebase
 let db: any;
 let auth: any;
-let isFirebaseAvailable = false;
 
 try {
     const app = initializeApp(firebaseConfig);
@@ -32,24 +31,37 @@ try {
     signInAnonymously(auth)
       .then(() => {
         console.log("Firebase: Autenticado como anônimo.");
-        isFirebaseAvailable = true;
       })
       .catch((err) => {
-        console.warn("Firebase Auth Warning (usando fallback local):", err.message);
+        console.warn("Firebase Auth Warning:", err.message);
       });
       
     console.log("Firebase initialized");
 } catch (error) {
-    console.error("Erro crítico ao inicializar Firebase (usando modo offline):", error);
-    isFirebaseAvailable = false;
+    console.error("Erro crítico ao inicializar Firebase:", error);
 }
+
+// Diagnostics: Check if we can actually write to the DB
+export const checkFirebaseConnection = async (): Promise<'connected' | 'denied' | 'error'> => {
+  if (!db) return 'error';
+  try {
+    const testRef = ref(db, '_connection_test');
+    await set(testRef, { timestamp: Date.now() });
+    return 'connected';
+  } catch (error: any) {
+    if (error.code === 'PERMISSION_DENIED') {
+      return 'denied';
+    }
+    return 'error';
+  }
+};
 
 // Subscribe to stream status changes (Viewer)
 export const subscribeToStreamStatus = (callback: (status: StreamStatus) => void) => {
   // 1. Configurar Listener Local (Fallback)
   const handleLocalChange = (e: StorageEvent) => {
     if (e.key === LOCAL_STORAGE_KEY && e.newValue) {
-      console.log("Status atualizado via LocalStorage (outra aba):", e.newValue);
+      console.log("Status atualizado via LocalStorage:", e.newValue);
       callback(e.newValue as StreamStatus);
     }
   };
@@ -59,8 +71,6 @@ export const subscribeToStreamStatus = (callback: (status: StreamStatus) => void
   const savedStatus = localStorage.getItem(LOCAL_STORAGE_KEY);
   if (savedStatus) {
     callback(savedStatus as StreamStatus);
-  } else {
-    callback(StreamStatus.OFFLINE);
   }
 
   // 2. Configurar Listener Remoto (Firebase)
@@ -73,12 +83,10 @@ export const subscribeToStreamStatus = (callback: (status: StreamStatus) => void
         if (data) {
           console.log("Status atualizado via Firebase:", data);
           callback(data as StreamStatus);
-          // Sincroniza local para garantir consistência
           localStorage.setItem(LOCAL_STORAGE_KEY, data);
         }
       }, (error) => {
-          // Silent warning
-          console.warn(`Firebase Read Error: ${error.message}.`);
+          console.warn(`Firebase Read Error: ${error.message}`);
       });
     } catch (e) {
       console.warn("Erro ao configurar listener do Firebase:", e);
@@ -94,33 +102,29 @@ export const subscribeToStreamStatus = (callback: (status: StreamStatus) => void
 export const updateStreamStatus = async (status: StreamStatus) => {
   console.log("Enviando atualização de status:", status);
   
-  // 1. Atualizar Localmente (Garante funcionamento imediato e entre abas)
+  // 1. Atualizar Localmente
   try {
       localStorage.setItem(LOCAL_STORAGE_KEY, status);
-      // Dispara evento manual para atualizar a própria aba se necessário
       window.dispatchEvent(new StorageEvent('storage', {
           key: LOCAL_STORAGE_KEY,
           newValue: status
       }));
   } catch (e) {
-      console.error("Erro ao salvar no LocalStorage:", e);
+      console.error("Erro no LocalStorage:", e);
   }
   
-  // 2. Atualizar Remotamente (Firebase)
+  // 2. Atualizar Remotamente
   if (db) {
     try {
       const statusRef = ref(db, 'stream/status');
       await set(statusRef, status);
       console.log("Status enviado ao Firebase com sucesso.");
     } catch (error: any) {
-      // Log silentemente o erro de permissão para não assustar o usuário com alertas
       if (error.code === 'PERMISSION_DENIED') {
-        console.warn("Aviso: Permissão de escrita negada no Firebase. O status foi atualizado apenas localmente.");
+        console.warn("Permissão negada no Firebase. Tentando apenas localmente.");
       } else {
-        console.error("Erro ao enviar para Firebase:", error.message);
+        console.error("Erro Firebase:", error.message);
       }
     }
-  } else {
-    console.warn("Firebase não disponível. Status atualizado apenas localmente.");
   }
 };
