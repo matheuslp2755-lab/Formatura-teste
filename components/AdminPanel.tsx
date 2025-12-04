@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Radio, StopCircle, Camera, RefreshCcw, Mic, Settings, AlertTriangle, Wifi, WifiOff, Globe, Lock } from 'lucide-react';
+import { Radio, StopCircle, Camera, RefreshCcw, Mic, Settings, AlertTriangle, Wifi, WifiOff, Globe, Lock, Copy, ExternalLink, Check } from 'lucide-react';
 import { StreamStatus } from '../types';
 import { checkFirebaseConnection } from '../services/firebase';
 
@@ -15,6 +15,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [errorMsg, setErrorMsg] = useState<string>('');
+  const [copied, setCopied] = useState(false);
   
   // Network Status State
   const [networkStatus, setNetworkStatus] = useState<'checking' | 'connected' | 'denied' | 'error'>('checking');
@@ -103,6 +104,18 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
     onUpdate(StreamStatus.ENDED);
   };
 
+  const copyRulesToClipboard = () => {
+    const rules = `{
+  "rules": {
+    ".read": true,
+    ".write": true
+  }
+}`;
+    navigator.clipboard.writeText(rules);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   return (
     <div className="flex flex-col gap-6">
       
@@ -142,26 +155,45 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
         </div>
       </div>
 
-      {/* ALERT BOX FOR PERMISSION DENIED */}
+      {/* ALERT BOX FOR PERMISSION DENIED - REDESIGNED FOR ACTION */}
       {networkStatus === 'denied' && (
-        <div className="bg-orange-950/30 border border-orange-500/30 rounded-lg p-4 animate-in fade-in slide-in-from-top-2">
-            <div className="flex items-start gap-3">
-                <AlertTriangle className="text-orange-500 shrink-0 mt-1" size={20} />
-                <div className="text-sm">
-                    <h3 className="font-bold text-orange-400 mb-1">Atenção: Transmissão Remota Bloqueada</h3>
-                    <p className="text-zinc-300 mb-2">
-                        O Firebase bloqueou a conexão. Para que seu amigo veja a transmissão da casa dele, você precisa liberar o acesso no site do Firebase.
+        <div className="bg-orange-950/40 border border-orange-500/40 rounded-lg p-5 animate-in fade-in slide-in-from-top-2 shadow-lg">
+            <div className="flex flex-col md:flex-row gap-5">
+                <div className="shrink-0">
+                    <div className="w-12 h-12 bg-orange-500/10 rounded-full flex items-center justify-center border border-orange-500/20">
+                        <Lock className="text-orange-500" size={24} />
+                    </div>
+                </div>
+                <div className="flex-1">
+                    <h3 className="font-bold text-lg text-white mb-2">Acesso Externo Bloqueado pelo Firebase</h3>
+                    <p className="text-zinc-300 text-sm mb-4 leading-relaxed">
+                        O Firebase (dono do banco de dados) está impedindo a gravação porque as <strong>Regras de Segurança</strong> padrão estão ativadas. Eu não posso mudar isso via código.
+                        <br/><span className="text-orange-400 font-bold">Você precisa liberar o acesso manualmente para transmitir.</span>
                     </p>
-                    <div className="bg-black/50 p-3 rounded border border-orange-500/20 font-mono text-xs text-zinc-400">
-                        <p className="mb-1 text-orange-300">Vá em Console Firebase &gt; Realtime Database &gt; Regras e cole:</p>
-                        <pre className="text-green-400 overflow-x-auto">
-{`{
-  "rules": {
-    ".read": true,
-    ".write": true
-  }
-}`}
-                        </pre>
+                    
+                    <div className="flex flex-col gap-3">
+                        <div className="flex items-center gap-2 bg-black/40 p-3 rounded border border-orange-500/10">
+                            <code className="text-green-400 font-mono text-xs flex-1">
+                                {`{ "rules": { ".read": true, ".write": true } }`}
+                            </code>
+                            <button 
+                                onClick={copyRulesToClipboard}
+                                className="px-3 py-1.5 bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold rounded flex items-center gap-2 transition-colors"
+                            >
+                                {copied ? <Check size={14} /> : <Copy size={14} />}
+                                {copied ? 'Copiado!' : 'Copiar Regras'}
+                            </button>
+                        </div>
+                        
+                        <a 
+                            href="https://console.firebase.google.com/" 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center justify-center gap-2 w-full md:w-auto bg-zinc-800 hover:bg-zinc-700 text-white text-sm font-bold py-2.5 px-4 rounded border border-zinc-700 transition-colors"
+                        >
+                            <ExternalLink size={16} />
+                            Abrir Firebase Console > Realtime Database > Regras
+                        </a>
                     </div>
                 </div>
             </div>
@@ -218,7 +250,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
                 <button 
                   onClick={handleStartStream}
                   disabled={!stream || !hasPermission}
-                  className="w-full sm:w-auto flex items-center justify-center gap-2 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 text-white px-12 py-4 rounded-lg font-bold tracking-wide shadow-lg transition-all transform hover:scale-105"
+                  className="w-full sm:w-auto flex items-center justify-center gap-2 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 text-white px-12 py-4 rounded-lg font-bold tracking-wide shadow-lg transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Radio size={20} />
                   INICIAR TRANSMISSÃO

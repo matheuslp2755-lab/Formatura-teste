@@ -33,7 +33,7 @@ try {
         console.log("Firebase: Autenticado como anônimo.");
       })
       .catch((err) => {
-        console.warn("Firebase Auth Warning:", err.message);
+        // Silencioso em caso de erro para não alarmar usuário se as regras forem publicas
       });
       
     console.log("Firebase initialized");
@@ -50,6 +50,7 @@ export const checkFirebaseConnection = async (): Promise<'connected' | 'denied' 
     return 'connected';
   } catch (error: any) {
     if (error.code === 'PERMISSION_DENIED') {
+      // Retorna 'denied' para a UI lidar, mas evita console.error explícito
       return 'denied';
     }
     return 'error';
@@ -86,7 +87,8 @@ export const subscribeToStreamStatus = (callback: (status: StreamStatus) => void
           localStorage.setItem(LOCAL_STORAGE_KEY, data);
         }
       }, (error) => {
-          console.warn(`Firebase Read Error: ${error.message}`);
+          // Apenas warn simples
+          console.warn(`Firebase Read Warning: ${error.code}`);
       });
     } catch (e) {
       console.warn("Erro ao configurar listener do Firebase:", e);
@@ -121,7 +123,7 @@ export const updateStreamStatus = async (status: StreamStatus) => {
       console.log("Status enviado ao Firebase com sucesso.");
     } catch (error: any) {
       if (error.code === 'PERMISSION_DENIED') {
-        console.warn("Permissão negada no Firebase. Tentando apenas localmente.");
+         // Já tratado pela UI do AdminPanel via checkFirebaseConnection
       } else {
         console.error("Erro Firebase:", error.message);
       }
