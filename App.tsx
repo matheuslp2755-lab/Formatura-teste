@@ -32,6 +32,7 @@ function AppContent() {
   useEffect(() => {
     // Inscreve para receber atualizações do Firebase em tempo real
     const unsubscribe = subscribeToStreamStatus((newStatus) => {
+      console.log("App: Recebido novo status:", newStatus);
       setStatus(newStatus);
     });
 
@@ -39,7 +40,13 @@ function AppContent() {
   }, []);
 
   const handleAdminUpdate = (newStatus: StreamStatus) => {
-    // Atualiza o Firebase em vez de estado local
+    console.log("App: Admin alterou status para:", newStatus);
+    
+    // 1. Atualiza visualmente para o Admin IMEDIATAMENTE (Feedback Instantâneo)
+    // Isso resolve a sensação de "botão quebrado" se a rede estiver lenta
+    setStatus(newStatus);
+    
+    // 2. Envia para o Firebase/LocalStorage em segundo plano para os outros usuários
     updateStreamStatus(newStatus);
   };
 
