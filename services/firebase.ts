@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getDatabase, ref, onValue, set } from "firebase/database";
+import { getDatabase, ref, onValue, set, push, onChildAdded, remove, child, get } from "firebase/database";
 import { getAuth, signInAnonymously } from "firebase/auth";
 import { StreamStatus } from "../types";
 
@@ -23,25 +23,17 @@ let auth: any;
 
 try {
     const app = initializeApp(firebaseConfig);
-    // Explicit URL provided to avoid region detection issues
     db = getDatabase(app, firebaseConfig.databaseURL);
     auth = getAuth(app);
     
-    // Tentar login anônimo para resolver regras "auth != null"
-    signInAnonymously(auth)
-      .then(() => {
-        console.log("Firebase: Autenticado como anônimo.");
-      })
-      .catch((err) => {
-        // Silencioso em caso de erro para não alarmar usuário se as regras forem publicas
-      });
+    signInAnonymously(auth).catch(() => {});
       
     console.log("Firebase initialized");
 } catch (error) {
     console.error("Erro crítico ao inicializar Firebase:", error);
 }
 
-// Diagnostics: Check if we can actually write to the DB
+// Diagnostics
 export const checkFirebaseConnection = async (): Promise<'connected' | 'denied' | 'error'> => {
   if (!db) return 'error';
   try {
@@ -49,84 +41,116 @@ export const checkFirebaseConnection = async (): Promise<'connected' | 'denied' 
     await set(testRef, { timestamp: Date.now() });
     return 'connected';
   } catch (error: any) {
-    if (error.code === 'PERMISSION_DENIED') {
-      // Retorna 'denied' para a UI lidar, mas evita console.error explícito
-      return 'denied';
-    }
+    if (error.code === 'PERMISSION_DENIED') return 'denied';
     return 'error';
   }
 };
 
-// Subscribe to stream status changes (Viewer)
+// Stream Status
 export const subscribeToStreamStatus = (callback: (status: StreamStatus) => void) => {
-  // 1. Configurar Listener Local (Fallback)
   const handleLocalChange = (e: StorageEvent) => {
-    if (e.key === LOCAL_STORAGE_KEY && e.newValue) {
-      console.log("Status atualizado via LocalStorage:", e.newValue);
-      callback(e.newValue as StreamStatus);
-    }
+    if (e.key === LOCAL_STORAGE_KEY && e.newValue) callback(e.newValue as StreamStatus);
   };
   window.addEventListener('storage', handleLocalChange);
 
-  // Checar valor inicial local
   const savedStatus = localStorage.getItem(LOCAL_STORAGE_KEY);
-  if (savedStatus) {
-    callback(savedStatus as StreamStatus);
-  }
+  if (savedStatus) callback(savedStatus as StreamStatus);
 
-  // 2. Configurar Listener Remoto (Firebase)
   if (db) {
     const statusRef = ref(db, 'stream/status');
-    
-    try {
-      onValue(statusRef, (snapshot) => {
-        const data = snapshot.val();
-        if (data) {
-          console.log("Status atualizado via Firebase:", data);
-          callback(data as StreamStatus);
-          localStorage.setItem(LOCAL_STORAGE_KEY, data);
-        }
-      }, (error) => {
-          // Apenas warn simples
-          console.warn(`Firebase Read Warning: ${error.code}`);
-      });
-    } catch (e) {
-      console.warn("Erro ao configurar listener do Firebase:", e);
-    }
+    onValue(statusRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        callback(data as StreamStatus);
+        localStorage.setItem(LOCAL_STORAGE_KEY, data);
+      }
+    });
   }
 
-  return () => {
-    window.removeEventListener('storage', handleLocalChange);
-  };
+  return () => window.removeEventListener('storage', handleLocalChange);
 };
 
-// Update stream status (Admin)
 export const updateStreamStatus = async (status: StreamStatus) => {
-  console.log("Enviando atualização de status:", status);
-  
-  // 1. Atualizar Localmente
   try {
       localStorage.setItem(LOCAL_STORAGE_KEY, status);
-      window.dispatchEvent(new StorageEvent('storage', {
-          key: LOCAL_STORAGE_KEY,
-          newValue: status
-      }));
-  } catch (e) {
-      console.error("Erro no LocalStorage:", e);
-  }
+      window.dispatchEvent(new StorageEvent('storage', { key: LOCAL_STORAGE_KEY, newValue: status }));
+  } catch (e) {}
   
-  // 2. Atualizar Remotamente
   if (db) {
     try {
       const statusRef = ref(db, 'stream/status');
       await set(statusRef, status);
-      console.log("Status enviado ao Firebase com sucesso.");
-    } catch (error: any) {
-      if (error.code === 'PERMISSION_DENIED') {
-         // Já tratado pela UI do AdminPanel via checkFirebaseConnection
-      } else {
-        console.error("Erro Firebase:", error.message);
+      if (status === StreamStatus.ENDED) {
+         // Limpar visualizadores antigos ao encerrar
+         remove(ref(db, 'stream/viewers'));
       }
-    }
+    } catch (error) {}
   }
+};
+
+// --- WEBRTC SIGNALING ---
+
+export const registerViewer = async (viewerId: string) => {
+  if (!db) return;
+  const viewerRef = ref(db, `stream/viewers/${viewerId}`);
+  await set(viewerRef, { joined: Date.now() });
+};
+
+export const listenForViewers = (onNewViewer: (viewerId: string) => void) => {
+  if (!db) return () => {};
+  const viewersRef = ref(db, 'stream/viewers');
+  const unsubscribe = onChildAdded(viewersRef, (snapshot) => {
+    onNewViewer(snapshot.key as string);
+  });
+  return unsubscribe;
+};
+
+export const sendOffer = async (viewerId: string, offer: any) => {
+  if (!db) return;
+  await set(ref(db, `stream/viewers/${viewerId}/offer`), JSON.stringify(offer));
+};
+
+export const listenForAnswer = (viewerId: string, onAnswer: (answer: any) => void) => {
+  if (!db) return;
+  const answerRef = ref(db, `stream/viewers/${viewerId}/answer`);
+  return onValue(answerRef, (snapshot) => {
+    const data = snapshot.val();
+    if (data) onAnswer(JSON.parse(data));
+  });
+};
+
+export const sendIceCandidate = async (viewerId: string, candidate: any, source: 'admin' | 'viewer') => {
+  if (!db) return;
+  const path = source === 'admin' 
+    ? `stream/viewers/${viewerId}/ice_admin` 
+    : `stream/viewers/${viewerId}/ice_viewer`;
+  await push(ref(db, path), JSON.stringify(candidate));
+};
+
+export const listenForIceCandidates = (viewerId: string, source: 'admin' | 'viewer', onCandidate: (candidate: any) => void) => {
+  if (!db) return;
+  const path = source === 'admin' 
+    ? `stream/viewers/${viewerId}/ice_admin` 
+    : `stream/viewers/${viewerId}/ice_viewer`;
+  
+  const unsubscribe = onChildAdded(ref(db, path), (snapshot) => {
+    const data = snapshot.val();
+    if (data) onCandidate(JSON.parse(data));
+  });
+  return unsubscribe;
+};
+
+// Viewer specific
+export const listenForOffer = (viewerId: string, onOffer: (offer: any) => void) => {
+  if (!db) return;
+  const offerRef = ref(db, `stream/viewers/${viewerId}/offer`);
+  return onValue(offerRef, (snapshot) => {
+    const data = snapshot.val();
+    if (data) onOffer(JSON.parse(data));
+  });
+};
+
+export const sendAnswer = async (viewerId: string, answer: any) => {
+  if (!db) return;
+  await set(ref(db, `stream/viewers/${viewerId}/answer`), JSON.stringify(answer));
 };

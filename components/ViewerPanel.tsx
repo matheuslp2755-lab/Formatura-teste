@@ -1,11 +1,16 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Volume2, VolumeX, Maximize, MessageCircle, Send, Users, Heart, Signal, Video } from 'lucide-react';
+import { Volume2, VolumeX, Maximize, MessageCircle, Send, Users, Heart, Signal, Video, Loader2 } from 'lucide-react';
 import { StreamStatus, ChatMessage } from '../types';
 import { getEventAssistantResponse } from '../services/gemini';
+import { registerViewer, listenForOffer, sendAnswer, listenForIceCandidates, sendIceCandidate } from '../services/firebase';
 
 interface ViewerPanelProps {
   status: StreamStatus;
 }
+
+const iceServers = {
+  iceServers: [{ urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] }]
+};
 
 const ViewerPanel: React.FC<ViewerPanelProps> = ({ status }) => {
   const [chatOpen, setChatOpen] = useState(false);
@@ -16,23 +21,81 @@ const ViewerPanel: React.FC<ViewerPanelProps> = ({ status }) => {
   const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
-  // Video simulation ref
+  // Video and WebRTC
   const videoRef = useRef<HTMLVideoElement>(null);
-  const [muted, setMuted] = useState(true);
+  const peerConnection = useRef<RTCPeerConnection | null>(null);
+  const [muted, setMuted] = useState(true); // Start muted to allow autoplay
+  const [connectionState, setConnectionState] = useState<'disconnected' | 'connecting' | 'connected' | 'failed'>('disconnected');
 
   // Scroll to bottom of chat
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, chatOpen]);
 
-  // Handle Video Autoplay when Live
+  // WebRTC Connection Logic
   useEffect(() => {
-    if (status === StreamStatus.LIVE && videoRef.current) {
-        videoRef.current.play().catch(() => {
-            setMuted(true);
-        });
+    if (status === StreamStatus.LIVE) {
+       setConnectionState('connecting');
+       const viewerId = 'viewer_' + Math.random().toString(36).substr(2, 9);
+       
+       const startConnection = async () => {
+         // 1. Announce presence
+         await registerViewer(viewerId);
+
+         // 2. Wait for Offer from Admin
+         listenForOffer(viewerId, async (offer) => {
+            console.log("Oferta recebida do Admin");
+            
+            if (peerConnection.current) peerConnection.current.close();
+            
+            const pc = new RTCPeerConnection(iceServers);
+            peerConnection.current = pc;
+
+            pc.onicecandidate = (event) => {
+               if (event.candidate) {
+                 sendIceCandidate(viewerId, event.candidate, 'viewer');
+               }
+            };
+
+            pc.ontrack = (event) => {
+               console.log("Track recebido:", event.streams[0]);
+               if (videoRef.current) {
+                 videoRef.current.srcObject = event.streams[0];
+                 videoRef.current.play().catch(e => console.error("Autoplay prevent:", e));
+                 setConnectionState('connected');
+               }
+            };
+            
+            pc.onconnectionstatechange = () => {
+                if (pc.connectionState === 'connected') setConnectionState('connected');
+                if (pc.connectionState === 'failed') setConnectionState('failed');
+            };
+
+            await pc.setRemoteDescription(new RTCSessionDescription(offer));
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            await sendAnswer(viewerId, answer);
+
+            listenForIceCandidates(viewerId, 'admin', (candidate) => {
+                pc.addIceCandidate(new RTCIceCandidate(candidate));
+            });
+         });
+       };
+
+       startConnection();
+
+       return () => {
+         if (peerConnection.current) {
+            peerConnection.current.close();
+            peerConnection.current = null;
+         }
+         setConnectionState('disconnected');
+       };
+    } else {
+        setConnectionState('disconnected');
     }
   }, [status]);
+
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -90,16 +153,25 @@ const ViewerPanel: React.FC<ViewerPanelProps> = ({ status }) => {
 
             {status === StreamStatus.LIVE ? (
                 <>
-                  {/* Simulated Live Feed */}
+                  {/* Real WebRTC Feed */}
                   <video
                     ref={videoRef}
-                    src="https://cdn.coverr.co/videos/coverr-people-at-a-concert-with-hands-in-the-air-5178/1080p.mp4"
                     className="w-full h-full object-cover"
-                    loop
+                    autoPlay
                     playsInline
                     muted={muted}
                   />
                   
+                  {/* Connecting State */}
+                  {connectionState === 'connecting' && (
+                     <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-10">
+                        <div className="flex flex-col items-center gap-3">
+                           <Loader2 className="animate-spin text-gold-500" size={32} />
+                           <p className="text-white text-sm font-bold tracking-widest uppercase">Estabelecendo Conexão Segura...</p>
+                        </div>
+                     </div>
+                  )}
+
                   {/* LIVE Indicator Overlay */}
                   <div className="absolute top-6 right-6 z-20 flex items-center gap-2 bg-red-600/90 backdrop-blur-sm text-white px-3 py-1 rounded-sm shadow-lg animate-pulse pointer-events-none">
                      <Signal size={14} />
@@ -107,7 +179,7 @@ const ViewerPanel: React.FC<ViewerPanelProps> = ({ status }) => {
                   </div>
 
                   {/* Player Controls (Custom) */}
-                  <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 to-transparent p-4 flex justify-between items-end opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                  <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 to-transparent p-4 flex justify-between items-end opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-30">
                       <button 
                         onClick={toggleMute}
                         className="p-2 hover:bg-white/10 rounded-full text-white transition-colors"
@@ -115,7 +187,7 @@ const ViewerPanel: React.FC<ViewerPanelProps> = ({ status }) => {
                           {muted ? <VolumeX size={24} /> : <Volume2 size={24} />}
                       </button>
                       <div className="text-white/80 text-xs font-mono tracking-widest">
-                          SINAL RECEBIDO: 1080P/60
+                          SINAL: WEBRTC P2P
                       </div>
                   </div>
                 </>
@@ -128,7 +200,7 @@ const ViewerPanel: React.FC<ViewerPanelProps> = ({ status }) => {
                         {status === StreamStatus.ENDED ? "Transmissão Encerrada" : "Aguardando Sinal"}
                     </h3>
                     <p className="text-zinc-300 font-light text-lg max-w-md text-center">
-                        {status === StreamStatus.ENDED ? "Obrigado por acompanhar a Formatura EASP 2025." : "Conectando ao feed de vídeo..."}
+                        {status === StreamStatus.ENDED ? "Obrigado por acompanhar a Formatura EASP 2025." : "O evento começará em breve."}
                     </p>
                     {status !== StreamStatus.ENDED && (
                         <div className="mt-8 flex items-center gap-3 text-gold-500/80 text-sm tracking-widest uppercase">

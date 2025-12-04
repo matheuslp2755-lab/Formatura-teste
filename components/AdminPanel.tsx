@@ -1,37 +1,41 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Radio, StopCircle, Camera, RefreshCcw, Mic, Settings, AlertTriangle, Wifi, WifiOff, Globe, Lock, Copy, ExternalLink, Check } from 'lucide-react';
+import { Radio, StopCircle, Camera, RefreshCcw, Settings, AlertTriangle, Wifi, WifiOff, Globe, Lock, Copy, ExternalLink, Check } from 'lucide-react';
 import { StreamStatus } from '../types';
-import { checkFirebaseConnection } from '../services/firebase';
+import { checkFirebaseConnection, listenForViewers, sendOffer, listenForAnswer, sendIceCandidate, listenForIceCandidates } from '../services/firebase';
 
 interface AdminPanelProps {
   onUpdate: (status: StreamStatus) => void;
   currentStatus: StreamStatus;
 }
 
+const iceServers = {
+  iceServers: [{ urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] }]
+};
+
 const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const peerConnections = useRef<Map<string, RTCPeerConnection>>(new Map());
+  
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [copied, setCopied] = useState(false);
+  const [viewerCount, setViewerCount] = useState(0);
   
-  // Network Status State
   const [networkStatus, setNetworkStatus] = useState<'checking' | 'connected' | 'denied' | 'error'>('checking');
 
-  // Check Firebase Connection on Mount
   useEffect(() => {
     const checkNet = async () => {
         const result = await checkFirebaseConnection();
         setNetworkStatus(result);
     };
     checkNet();
-    const interval = setInterval(checkNet, 10000); // Recheck every 10s
+    const interval = setInterval(checkNet, 10000); 
     return () => clearInterval(interval);
   }, []);
 
-  // Initialize Camera
   useEffect(() => {
     let mounted = true;
     const init = async () => {
@@ -44,12 +48,66 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
     };
   }, [facingMode]);
 
-  // Attach stream to video
   useEffect(() => {
     if (videoRef.current && stream) {
       videoRef.current.srcObject = stream;
     }
   }, [stream, hasPermission]);
+
+  // --- WebRTC Logic ---
+  useEffect(() => {
+    if (currentStatus === StreamStatus.LIVE && stream) {
+      console.log("Iniciando servidor de sinalização...");
+      
+      const unsubscribe = listenForViewers(async (viewerId) => {
+        console.log("Novo visualizador detectado:", viewerId);
+        setViewerCount(prev => prev + 1);
+        
+        if (peerConnections.current.has(viewerId)) return;
+
+        const pc = new RTCPeerConnection(iceServers);
+        peerConnections.current.set(viewerId, pc);
+
+        // Add Tracks
+        stream.getTracks().forEach(track => {
+          pc.addTrack(track, stream);
+        });
+
+        // ICE Candidates
+        pc.onicecandidate = (event) => {
+          if (event.candidate) {
+            sendIceCandidate(viewerId, event.candidate, 'admin');
+          }
+        };
+
+        // Create Offer
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        await sendOffer(viewerId, offer);
+
+        // Listen for Answer
+        listenForAnswer(viewerId, (answer) => {
+           if (!pc.currentRemoteDescription) {
+             pc.setRemoteDescription(new RTCSessionDescription(answer));
+           }
+        });
+
+        // Listen for Viewer ICE
+        listenForIceCandidates(viewerId, 'viewer', (candidate) => {
+           pc.addIceCandidate(new RTCIceCandidate(candidate));
+        });
+      });
+
+      return () => {
+        // Cleanup all connections when stopping stream
+        peerConnections.current.forEach(pc => pc.close());
+        peerConnections.current.clear();
+        setViewerCount(0);
+        // unsubscribe is void | Unsubscribe, check implementation
+      };
+    }
+  }, [currentStatus, stream]);
+
 
   const stopCameraInternal = () => {
     if (streamRef.current) {
@@ -102,6 +160,9 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
 
   const handleStopStream = () => {
     onUpdate(StreamStatus.ENDED);
+    peerConnections.current.forEach(pc => pc.close());
+    peerConnections.current.clear();
+    setViewerCount(0);
   };
 
   const copyRulesToClipboard = () => {
@@ -118,8 +179,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
 
   return (
     <div className="flex flex-col gap-6">
-      
-      {/* Network Diagnostics Header */}
       <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div>
             <h1 className="text-xl font-serif text-white flex items-center gap-2">
@@ -130,13 +189,11 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
         </div>
 
         <div className="flex items-center gap-4">
-            {/* Status do Stream */}
             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border ${currentStatus === StreamStatus.LIVE ? 'bg-red-900/20 border-red-500/50 text-red-500' : 'bg-black border-zinc-700 text-zinc-500'}`}>
                 <div className={`w-2.5 h-2.5 rounded-full ${currentStatus === StreamStatus.LIVE ? 'bg-red-500 animate-pulse' : 'bg-zinc-600'}`}></div>
                 <span className="text-xs font-bold tracking-wider">{currentStatus === StreamStatus.LIVE ? 'NO AR' : 'OFFLINE'}</span>
             </div>
 
-            {/* Status da Rede (Firebase) */}
             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border transition-colors ${
                 networkStatus === 'connected' ? 'bg-green-900/20 border-green-500/30 text-green-500' : 
                 networkStatus === 'denied' ? 'bg-orange-900/20 border-orange-500/30 text-orange-400' :
@@ -147,15 +204,14 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
                 {(networkStatus === 'error' || networkStatus === 'checking') && <WifiOff size={14} />}
                 
                 <span className="text-xs font-bold uppercase">
-                    {networkStatus === 'connected' ? 'Rede Conectada' : 
-                     networkStatus === 'denied' ? 'Bloqueio de Segurança' : 
-                     networkStatus === 'checking' ? 'Verificando...' : 'Sem Conexão'}
+                    {networkStatus === 'connected' ? 'Conectado' : 
+                     networkStatus === 'denied' ? 'Bloqueado' : 
+                     networkStatus === 'checking' ? '...' : 'Erro'}
                 </span>
             </div>
         </div>
       </div>
 
-      {/* ALERT BOX FOR PERMISSION DENIED - REDESIGNED FOR ACTION */}
       {networkStatus === 'denied' && (
         <div className="bg-orange-950/40 border border-orange-500/40 rounded-lg p-5 animate-in fade-in slide-in-from-top-2 shadow-lg">
             <div className="flex flex-col md:flex-row gap-5">
@@ -165,12 +221,11 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
                     </div>
                 </div>
                 <div className="flex-1">
-                    <h3 className="font-bold text-lg text-white mb-2">Acesso Externo Bloqueado pelo Firebase</h3>
+                    <h3 className="font-bold text-lg text-white mb-2">Acesso Externo Bloqueado</h3>
                     <p className="text-zinc-300 text-sm mb-4 leading-relaxed">
-                        O Firebase (dono do banco de dados) está impedindo a gravação porque as <strong>Regras de Segurança</strong> padrão estão ativadas. Eu não posso mudar isso via código.
-                        <br/><span className="text-orange-400 font-bold">Você precisa liberar o acesso manualmente para transmitir.</span>
+                        O Firebase bloqueou a conexão. Sem isso, o vídeo não chega ao seu amigo.
+                        <br/><span className="text-orange-400 font-bold">Libere o acesso no console:</span>
                     </p>
-                    
                     <div className="flex flex-col gap-3">
                         <div className="flex items-center gap-2 bg-black/40 p-3 rounded border border-orange-500/10">
                             <code className="text-green-400 font-mono text-xs flex-1">
@@ -181,11 +236,10 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
                                 className="px-3 py-1.5 bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold rounded flex items-center gap-2 transition-colors"
                             >
                                 {copied ? <Check size={14} /> : <Copy size={14} />}
-                                {copied ? 'Copiado!' : 'Copiar Regras'}
+                                {copied ? 'Copiado' : 'Copiar'}
                             </button>
                         </div>
-                        
-                        <a 
+                         <a 
                             href="https://console.firebase.google.com/" 
                             target="_blank" 
                             rel="noopener noreferrer"
@@ -200,9 +254,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
         </div>
       )}
 
-      {/* Main Camera Feed */}
       <div className="bg-zinc-900 rounded-lg overflow-hidden border border-zinc-800 shadow-2xl relative">
-          
           <div className="aspect-video bg-black relative group flex items-center justify-center overflow-hidden">
               {hasPermission === false ? (
                   <div className="text-center text-red-500 p-6 flex flex-col items-center max-w-md">
@@ -231,9 +283,13 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
                         <div className="flex items-center gap-2 mt-1">
                             <div className="h-0.5 w-6 bg-gold-500"></div>
                             <p className="text-gold-400 font-sans text-[10px] font-bold tracking-[0.3em] uppercase">
-                                MPLAY
+                                MPLAY DIRECT
                             </p>
                         </div>
+                    </div>
+
+                    <div className="absolute top-6 right-6 z-20 bg-black/60 backdrop-blur px-3 py-1 rounded text-xs text-white border border-white/10">
+                       Espectadores Conectados: {viewerCount}
                     </div>
 
                     <div className="absolute bottom-6 right-6 z-30 flex gap-2">
