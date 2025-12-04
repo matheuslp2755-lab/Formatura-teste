@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Radio, StopCircle, Camera, RefreshCcw, Settings, AlertTriangle, Wifi, WifiOff, Globe, Lock, Copy, ExternalLink, Check } from 'lucide-react';
+import { Radio, StopCircle, RefreshCcw, Settings, AlertTriangle, Wifi, WifiOff, Globe, Lock, Copy, ExternalLink, Check, Clock } from 'lucide-react';
 import { StreamStatus } from '../types';
-import { checkFirebaseConnection, listenForViewers, sendOffer, listenForAnswer, sendIceCandidate, listenForIceCandidates } from '../services/firebase';
+import { checkFirebaseConnection, listenForViewers, sendOffer, listenForAnswer, sendIceCandidate, listenForIceCandidates, setStreamCountdown, listenToCountdown } from '../services/firebase';
 
 interface AdminPanelProps {
   onUpdate: (status: StreamStatus) => void;
@@ -24,6 +24,10 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
   const [copied, setCopied] = useState(false);
   const [viewerCount, setViewerCount] = useState(0);
   
+  // Countdown State
+  const [countdownMinutes, setCountdownMinutes] = useState<string>('20');
+  const [activeCountdown, setActiveCountdown] = useState<number | null>(null);
+
   const [networkStatus, setNetworkStatus] = useState<'checking' | 'connected' | 'denied' | 'error'>('checking');
 
   useEffect(() => {
@@ -34,6 +38,14 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
     checkNet();
     const interval = setInterval(checkNet, 10000); 
     return () => clearInterval(interval);
+  }, []);
+
+  // Listen for current countdown status from Firebase
+  useEffect(() => {
+    const unsubscribe = listenToCountdown((timestamp) => {
+        setActiveCountdown(timestamp);
+    });
+    return () => unsubscribe();
   }, []);
 
   useEffect(() => {
@@ -103,7 +115,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
         peerConnections.current.forEach(pc => pc.close());
         peerConnections.current.clear();
         setViewerCount(0);
-        // unsubscribe is void | Unsubscribe, check implementation
       };
     }
   }, [currentStatus, stream]);
@@ -154,6 +165,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
 
   const handleStartStream = () => {
     if (hasPermission && stream) {
+        // Se iniciar a live, limpa a contagem regressiva
+        setStreamCountdown(null);
         onUpdate(StreamStatus.LIVE);
     }
   };
@@ -175,6 +188,18 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
     navigator.clipboard.writeText(rules);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleSetCountdown = () => {
+    const mins = parseInt(countdownMinutes);
+    if (!isNaN(mins) && mins > 0) {
+        const targetTime = Date.now() + (mins * 60 * 1000);
+        setStreamCountdown(targetTime);
+    }
+  };
+
+  const handleClearCountdown = () => {
+    setStreamCountdown(null);
   };
 
   return (
@@ -300,6 +325,45 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
                 </>
               )}
           </div>
+
+          {/* Countdown Controls */}
+          {currentStatus !== StreamStatus.LIVE && (
+            <div className="bg-zinc-900 p-4 border-t border-zinc-800 flex items-center gap-4 flex-wrap">
+                 <div className="flex items-center gap-2 text-zinc-400">
+                    <Clock size={18} />
+                    <span className="text-sm font-bold uppercase tracking-wider">Contagem Regressiva:</span>
+                 </div>
+                 <div className="flex items-center gap-2">
+                    <input 
+                        type="number" 
+                        value={countdownMinutes}
+                        onChange={(e) => setCountdownMinutes(e.target.value)}
+                        className="bg-zinc-950 border border-zinc-700 text-white rounded w-16 px-2 py-1 text-sm text-center focus:border-gold-500 focus:outline-none"
+                        placeholder="Min"
+                    />
+                    <span className="text-xs text-zinc-500">minutos</span>
+                    <button 
+                        onClick={handleSetCountdown}
+                        className="ml-2 px-3 py-1 bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold rounded border border-zinc-600 transition-colors"
+                    >
+                        Definir
+                    </button>
+                    {activeCountdown && (
+                         <button 
+                            onClick={handleClearCountdown}
+                            className="ml-1 px-3 py-1 bg-red-900/20 hover:bg-red-900/40 text-red-500 text-xs font-bold rounded border border-red-900/50 transition-colors"
+                        >
+                            Limpar
+                        </button>
+                    )}
+                 </div>
+                 {activeCountdown && (
+                    <div className="ml-auto text-gold-500 font-mono text-sm">
+                        Alvo: {new Date(activeCountdown).toLocaleTimeString()}
+                    </div>
+                 )}
+            </div>
+          )}
 
           <div className="p-6 bg-zinc-950 border-t border-zinc-800 flex justify-center gap-4">
              {currentStatus !== StreamStatus.LIVE ? (

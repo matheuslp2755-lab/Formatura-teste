@@ -81,12 +81,32 @@ export const updateStreamStatus = async (status: StreamStatus) => {
       const statusRef = ref(db, 'stream/status');
       await set(statusRef, status);
       if (status === StreamStatus.ENDED) {
-         // Limpar visualizadores antigos ao encerrar
          remove(ref(db, 'stream/viewers'));
       }
     } catch (error) {}
   }
 };
+
+// --- COUNTDOWN LOGIC ---
+export const setStreamCountdown = async (targetTimestamp: number | null) => {
+  if (!db) return;
+  try {
+    const countdownRef = ref(db, 'stream/countdown');
+    await set(countdownRef, targetTimestamp);
+  } catch (error) {
+    console.error("Erro ao definir contagem:", error);
+  }
+};
+
+export const listenToCountdown = (callback: (timestamp: number | null) => void) => {
+  if (!db) return () => {};
+  const countdownRef = ref(db, 'stream/countdown');
+  const unsubscribe = onValue(countdownRef, (snapshot) => {
+    callback(snapshot.val());
+  });
+  return unsubscribe;
+};
+
 
 // --- WEBRTC SIGNALING ---
 

@@ -43,7 +43,6 @@ function AppContent() {
     console.log("App: Admin alterou status para:", newStatus);
     
     // 1. Atualiza visualmente para o Admin IMEDIATAMENTE (Feedback Instantâneo)
-    // Isso resolve a sensação de "botão quebrado" se a rede estiver lenta
     setStatus(newStatus);
     
     // 2. Envia para o Firebase/LocalStorage em segundo plano para os outros usuários
@@ -67,18 +66,11 @@ function AppContent() {
               </div>
               <div className="flex flex-col">
                 <span className="font-serif font-bold text-white leading-none tracking-wide group-hover:text-gold-400 transition-colors">MPLAY</span>
-                <span className="text-[10px] text-zinc-500 tracking-[0.2em] uppercase">Transmission</span>
+                <span className="text-[10px] text-zinc-500 tracking-[0.2em] uppercase">Transmissão realizada pela Mplay</span>
               </div>
             </Link>
 
             <div className="flex items-center gap-6">
-              {status === StreamStatus.LIVE && (
-                <span className="flex items-center gap-2 px-3 py-1 bg-red-900/20 border border-red-900/50 rounded-full text-red-500 text-xs font-bold animate-pulse shadow-[0_0_15px_rgba(220,38,38,0.2)]">
-                  <span className="w-2 h-2 rounded-full bg-red-500"></span>
-                  AO VIVO AGORA
-                </span>
-              )}
-              
               {isAuthenticated ? (
                   <button 
                     onClick={handleLogout}
@@ -127,7 +119,7 @@ function AppContent() {
               Transmissão realizada por <span className="text-zinc-400 font-bold">MPLAY</span>
             </p>
             <p className="text-zinc-800 text-xs mt-4">
-              &copy; 2025 MPLAY Streaming Solutions. All rights reserved.
+              &copy; 2025 MPLAY Streaming Solutions. Todos os direitos reservados.
             </p>
           </div>
         </footer>

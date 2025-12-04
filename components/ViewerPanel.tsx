@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Volume2, VolumeX, Maximize, MessageCircle, Send, Users, Heart, Signal, Video, Loader2 } from 'lucide-react';
+import { Volume2, VolumeX, Maximize, MessageCircle, Send, Users, Heart, Signal, Video, Loader2, Clock } from 'lucide-react';
 import { StreamStatus, ChatMessage } from '../types';
 import { getEventAssistantResponse } from '../services/gemini';
-import { registerViewer, listenForOffer, sendAnswer, listenForIceCandidates, sendIceCandidate } from '../services/firebase';
+import { registerViewer, listenForOffer, sendAnswer, listenForIceCandidates, sendIceCandidate, listenToCountdown } from '../services/firebase';
 
 interface ViewerPanelProps {
   status: StreamStatus;
@@ -24,13 +24,56 @@ const ViewerPanel: React.FC<ViewerPanelProps> = ({ status }) => {
   // Video and WebRTC
   const videoRef = useRef<HTMLVideoElement>(null);
   const peerConnection = useRef<RTCPeerConnection | null>(null);
-  const [muted, setMuted] = useState(true); // Start muted to allow autoplay
+  const [muted, setMuted] = useState(true); 
   const [connectionState, setConnectionState] = useState<'disconnected' | 'connecting' | 'connected' | 'failed'>('disconnected');
+
+  // Countdown State
+  const [targetTime, setTargetTime] = useState<number | null>(null);
+  const [timeLeft, setTimeLeft] = useState<string>('');
 
   // Scroll to bottom of chat
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, chatOpen]);
+
+  // Listen for countdown
+  useEffect(() => {
+    const unsubscribe = listenToCountdown((val) => {
+        setTargetTime(val);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Update Countdown Timer
+  useEffect(() => {
+    if (!targetTime) {
+        setTimeLeft('');
+        return;
+    }
+
+    const interval = setInterval(() => {
+        const now = Date.now();
+        const diff = targetTime - now;
+
+        if (diff <= 0) {
+            setTimeLeft('00:00:00');
+            clearInterval(interval);
+        } else {
+            const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+            const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+            const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+
+            const str = 
+                (hours > 0 ? hours.toString().padStart(2, '0') + ':' : '') + 
+                minutes.toString().padStart(2, '0') + ':' + 
+                seconds.toString().padStart(2, '0');
+            setTimeLeft(str);
+        }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [targetTime]);
+
 
   // WebRTC Connection Logic
   useEffect(() => {
@@ -192,22 +235,40 @@ const ViewerPanel: React.FC<ViewerPanelProps> = ({ status }) => {
                   </div>
                 </>
             ) : (
-                <div className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-900/95 text-white bg-[url('https://images.unsplash.com/photo-1523580494863-6f3031224c94?q=80&w=2070&auto=format&fit=crop')] bg-cover bg-center bg-blend-multiply">
-                    <div className="mb-6 p-6 rounded-full bg-zinc-950/50 backdrop-blur border border-zinc-800 text-zinc-400 animate-pulse">
-                        {status === StreamStatus.ENDED ? <Video size={48} /> : <Signal size={48} />}
-                    </div>
-                    <h3 className="text-3xl font-serif mb-3 text-center text-white">
-                        {status === StreamStatus.ENDED ? "Transmissão Encerrada" : "Aguardando Sinal"}
-                    </h3>
-                    <p className="text-zinc-300 font-light text-lg max-w-md text-center">
-                        {status === StreamStatus.ENDED ? "Obrigado por acompanhar a Formatura EASP 2025." : "O evento começará em breve."}
-                    </p>
-                    {status !== StreamStatus.ENDED && (
-                        <div className="mt-8 flex items-center gap-3 text-gold-500/80 text-sm tracking-widest uppercase">
-                            <span className="w-2 h-2 rounded-full bg-gold-500 animate-pulse"></span>
-                            Aguardando Diretor
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-950 text-white">
+                    {/* Background Effect */}
+                    <div className="absolute inset-0 bg-gradient-to-b from-zinc-900 to-black opacity-80"></div>
+                    
+                    <div className="z-10 flex flex-col items-center p-8 text-center">
+                        <div className="mb-6 p-6 rounded-full bg-zinc-900/50 backdrop-blur border border-zinc-800 text-gold-500 shadow-[0_0_30px_rgba(234,179,8,0.1)]">
+                            {targetTime && timeLeft ? <Clock size={48} className="animate-pulse" /> : <Video size={48} />}
                         </div>
-                    )}
+                        
+                        {targetTime && timeLeft ? (
+                            <>
+                                <h3 className="text-sm font-bold text-gold-500 uppercase tracking-[0.3em] mb-4">A transmissão começará em</h3>
+                                <div className="text-5xl md:text-7xl font-mono font-bold text-white tabular-nums tracking-tight">
+                                    {timeLeft}
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <h3 className="text-3xl font-serif mb-3 text-center text-white">
+                                    {status === StreamStatus.ENDED ? "Transmissão Encerrada" : "Aguardando Início"}
+                                </h3>
+                                <p className="text-zinc-400 font-light text-lg max-w-md text-center">
+                                    {status === StreamStatus.ENDED ? "Obrigado por acompanhar a Formatura EASP 2025." : "O sinal será liberado em breve."}
+                                </p>
+                            </>
+                        )}
+                        
+                        {status !== StreamStatus.ENDED && !targetTime && (
+                            <div className="mt-8 flex items-center gap-3 text-zinc-600 text-sm tracking-widest uppercase">
+                                <span className="w-2 h-2 rounded-full bg-zinc-600 animate-pulse"></span>
+                                Aguardando Diretor
+                            </div>
+                        )}
+                    </div>
                 </div>
             )}
         </div>
