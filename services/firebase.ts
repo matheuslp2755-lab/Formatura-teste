@@ -77,7 +77,8 @@ export const subscribeToStreamStatus = (callback: (status: StreamStatus) => void
           localStorage.setItem(LOCAL_STORAGE_KEY, data);
         }
       }, (error) => {
-          console.warn(`Firebase Read Error: ${error.message}. Mantendo sincronização local.`);
+          // Silent warning
+          console.warn(`Firebase Read Error: ${error.message}.`);
       });
     } catch (e) {
       console.warn("Erro ao configurar listener do Firebase:", e);
@@ -96,6 +97,11 @@ export const updateStreamStatus = async (status: StreamStatus) => {
   // 1. Atualizar Localmente (Garante funcionamento imediato e entre abas)
   try {
       localStorage.setItem(LOCAL_STORAGE_KEY, status);
+      // Dispara evento manual para atualizar a própria aba se necessário
+      window.dispatchEvent(new StorageEvent('storage', {
+          key: LOCAL_STORAGE_KEY,
+          newValue: status
+      }));
   } catch (e) {
       console.error("Erro ao salvar no LocalStorage:", e);
   }
@@ -107,9 +113,11 @@ export const updateStreamStatus = async (status: StreamStatus) => {
       await set(statusRef, status);
       console.log("Status enviado ao Firebase com sucesso.");
     } catch (error: any) {
-      console.error("Erro ao enviar para Firebase:", error.message);
+      // Log silentemente o erro de permissão para não assustar o usuário com alertas
       if (error.code === 'PERMISSION_DENIED') {
-        alert("Aviso: Permissão negada no Firebase. A transmissão funcionará apenas neste dispositivo (sincronização local). Verifique as Regras de Segurança do Firebase Console.");
+        console.warn("Aviso: Permissão de escrita negada no Firebase. O status foi atualizado apenas localmente.");
+      } else {
+        console.error("Erro ao enviar para Firebase:", error.message);
       }
     }
   } else {
