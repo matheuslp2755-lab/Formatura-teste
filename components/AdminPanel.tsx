@@ -192,7 +192,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
                             className="inline-flex items-center justify-center gap-2 w-full md:w-auto bg-zinc-800 hover:bg-zinc-700 text-white text-sm font-bold py-2.5 px-4 rounded border border-zinc-700 transition-colors"
                         >
                             <ExternalLink size={16} />
-                            Abrir Firebase Console > Realtime Database > Regras
+                            Abrir Firebase Console &gt; Realtime Database &gt; Regras
                         </a>
                     </div>
                 </div>
