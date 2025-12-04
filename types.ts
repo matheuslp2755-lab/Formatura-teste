@@ -8,9 +8,10 @@ export enum StreamStatus {
 
 export interface ChatMessage {
   id: string;
-  sender: 'user' | 'ai';
+  sender: string; // Name of the user
   text: string;
-  timestamp: Date;
+  timestamp: number; // Unix timestamp for Firebase compatibility
+  isMe?: boolean; // Helper for UI rendering (local only)
 }
 
 // Helper types for Audio processing

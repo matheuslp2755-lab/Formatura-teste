@@ -1,8 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Volume2, VolumeX, Maximize, MessageCircle, Send, Users, Heart, Signal, Video, Loader2, Clock } from 'lucide-react';
+import { Volume2, VolumeX, Maximize, MessageCircle, Send, Users, Heart, Signal, Video, Loader2, Clock, User, Minimize } from 'lucide-react';
 import { StreamStatus, ChatMessage } from '../types';
-import { getEventAssistantResponse } from '../services/gemini';
-import { registerViewer, listenForOffer, sendAnswer, listenForIceCandidates, sendIceCandidate, listenToCountdown } from '../services/firebase';
+import { registerViewer, listenForOffer, sendAnswer, listenForIceCandidates, sendIceCandidate, listenToCountdown, sendChatMessage, listenToChatMessages } from '../services/firebase';
 
 interface ViewerPanelProps {
   status: StreamStatus;
@@ -13,19 +12,24 @@ const iceServers = {
 };
 
 const ViewerPanel: React.FC<ViewerPanelProps> = ({ status }) => {
+  // User Identity State
+  const [username, setUsername] = useState<string>('');
+  const [tempUsername, setTempUsername] = useState('');
+  const [showNameModal, setShowNameModal] = useState(true);
+
+  // Chat State
   const [chatOpen, setChatOpen] = useState(false);
   const [chatInput, setChatInput] = useState('');
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    { id: '1', sender: 'ai', text: 'Bem-vindo à transmissão da Formatura EASP 2025! Eu sou o assistente virtual da MPLAY. Posso ajudar com informações sobre o evento.', timestamp: new Date() }
-  ]);
-  const [isTyping, setIsTyping] = useState(false);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
   // Video and WebRTC
+  const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const peerConnection = useRef<RTCPeerConnection | null>(null);
   const [muted, setMuted] = useState(true); 
   const [connectionState, setConnectionState] = useState<'disconnected' | 'connecting' | 'connected' | 'failed'>('disconnected');
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   // Countdown State
   const [targetTime, setTargetTime] = useState<number | null>(null);
@@ -35,6 +39,14 @@ const ViewerPanel: React.FC<ViewerPanelProps> = ({ status }) => {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, chatOpen]);
+
+  // Load Chat Messages
+  useEffect(() => {
+    const unsubscribe = listenToChatMessages((msg) => {
+       setMessages((prev) => [...prev, msg]);
+    });
+    return () => unsubscribe();
+  }, []);
 
   // Listen for countdown
   useEffect(() => {
@@ -142,30 +154,16 @@ const ViewerPanel: React.FC<ViewerPanelProps> = ({ status }) => {
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!chatInput.trim()) return;
+    if (!chatInput.trim() || !username) return;
 
-    const userMsg: ChatMessage = {
-      id: Date.now().toString(),
-      sender: 'user',
-      text: chatInput,
-      timestamp: new Date()
-    };
+    // Send to Firebase
+    await sendChatMessage({
+        sender: username,
+        text: chatInput,
+        timestamp: Date.now()
+    });
 
-    setMessages(prev => [...prev, userMsg]);
     setChatInput('');
-    setIsTyping(true);
-
-    const reply = await getEventAssistantResponse(userMsg.text);
-    
-    const aiMsg: ChatMessage = {
-      id: (Date.now() + 1).toString(),
-      sender: 'ai',
-      text: reply,
-      timestamp: new Date()
-    };
-
-    setMessages(prev => [...prev, aiMsg]);
-    setIsTyping(false);
   };
 
   const toggleMute = () => {
@@ -175,11 +173,85 @@ const ViewerPanel: React.FC<ViewerPanelProps> = ({ status }) => {
     }
   };
 
+  const toggleFullScreen = () => {
+    if (!containerRef.current) return;
+
+    if (!document.fullscreenElement) {
+        containerRef.current.requestFullscreen().then(() => {
+            setIsFullscreen(true);
+        }).catch(err => {
+            console.error(`Error attempting to enable full-screen mode: ${err.message} (${err.name})`);
+        });
+    } else {
+        document.exitFullscreen().then(() => {
+            setIsFullscreen(false);
+        });
+    }
+  };
+
+  // Detect fullscreen change via ESC key
+  useEffect(() => {
+    const handleFSChange = () => {
+        setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFSChange);
+    return () => document.removeEventListener('fullscreenchange', handleFSChange);
+  }, []);
+
+  const handleNameSubmit = (e: React.FormEvent) => {
+      e.preventDefault();
+      if (tempUsername.trim()) {
+          setUsername(tempUsername.trim());
+          setShowNameModal(false);
+          // Auto open chat if desired, or let them open it
+          setChatOpen(true);
+      }
+  };
+
   return (
-    <div className="flex flex-col lg:flex-row gap-6 max-w-7xl mx-auto w-full">
+    <div className="flex flex-col lg:flex-row gap-6 max-w-7xl mx-auto w-full relative">
+      
+      {/* Username Modal Overlay */}
+      {showNameModal && (
+        <div className="fixed inset-0 z-[60] bg-black/90 backdrop-blur-md flex items-center justify-center p-4">
+            <div className="max-w-md w-full bg-zinc-900 border border-zinc-800 rounded-2xl p-8 shadow-2xl relative overflow-hidden">
+                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-gold-500 to-transparent"></div>
+                
+                <div className="flex flex-col items-center text-center mb-6">
+                    <div className="w-16 h-16 bg-zinc-950 rounded-full flex items-center justify-center border border-zinc-800 mb-4 text-gold-500">
+                        <User size={32} />
+                    </div>
+                    <h2 className="text-2xl font-serif text-white">Bem-vindo(a)</h2>
+                    <p className="text-zinc-500 text-sm mt-2">Como você gostaria de ser identificado no chat?</p>
+                </div>
+
+                <form onSubmit={handleNameSubmit} className="flex flex-col gap-4">
+                    <input 
+                        type="text" 
+                        value={tempUsername}
+                        onChange={(e) => setTempUsername(e.target.value)}
+                        placeholder="Seu nome ou apelido"
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded-lg py-3 px-4 text-white text-center focus:outline-none focus:border-gold-500 transition-colors"
+                        autoFocus
+                    />
+                    <button 
+                        type="submit"
+                        disabled={!tempUsername.trim()}
+                        className="w-full bg-gold-600 hover:bg-gold-500 text-black font-bold py-3 rounded-lg transition-transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        Entrar na Transmissão
+                    </button>
+                </form>
+            </div>
+        </div>
+      )}
+
       {/* Video Player Section */}
       <div className="flex-1 flex flex-col gap-4">
-        <div className="relative aspect-video bg-black rounded-xl overflow-hidden shadow-[0_0_40px_rgba(234,179,8,0.1)] group border border-zinc-800">
+        <div 
+            ref={containerRef} 
+            className="relative aspect-video bg-black rounded-xl overflow-hidden shadow-[0_0_40px_rgba(234,179,8,0.1)] group border border-zinc-800"
+        >
             
             {/* Broadcast Overlay / Watermark */}
             <div className="absolute top-6 left-6 z-20 select-none pointer-events-none drop-shadow-md">
@@ -222,16 +294,26 @@ const ViewerPanel: React.FC<ViewerPanelProps> = ({ status }) => {
                   </div>
 
                   {/* Player Controls (Custom) */}
-                  <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 to-transparent p-4 flex justify-between items-end opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-30">
-                      <button 
-                        onClick={toggleMute}
-                        className="p-2 hover:bg-white/10 rounded-full text-white transition-colors"
-                      >
-                          {muted ? <VolumeX size={24} /> : <Volume2 size={24} />}
-                      </button>
-                      <div className="text-white/80 text-xs font-mono tracking-widest">
-                          SINAL: WEBRTC P2P
+                  <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent p-4 flex justify-between items-end opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-30">
+                      <div className="flex items-center gap-4">
+                          <button 
+                            onClick={toggleMute}
+                            className="p-2 hover:bg-white/10 rounded-full text-white transition-colors"
+                          >
+                              {muted ? <VolumeX size={24} /> : <Volume2 size={24} />}
+                          </button>
+                          <div className="text-white/80 text-xs font-mono tracking-widest border-l border-white/20 pl-4">
+                              SINAL: WEBRTC P2P
+                          </div>
                       </div>
+
+                      <button 
+                        onClick={toggleFullScreen}
+                        className="p-2 hover:bg-white/10 rounded-full text-white transition-colors"
+                        title="Tela Cheia"
+                      >
+                          {isFullscreen ? <Minimize size={24} /> : <Maximize size={24} />}
+                      </button>
                   </div>
                 </>
             ) : (
@@ -275,8 +357,8 @@ const ViewerPanel: React.FC<ViewerPanelProps> = ({ status }) => {
 
         {/* Stream Info */}
         <div className="bg-zinc-900 rounded-xl p-6 border border-zinc-800 shadow-xl">
-            <div className="flex flex-col md:flex-row justify-between items-start gap-4">
-                <div>
+            <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+                <div className="flex-1">
                     <div className="flex items-center gap-3 mb-2">
                         <h1 className="text-2xl lg:text-3xl font-serif text-white">Formatura EASP 2025</h1>
                         {status === StreamStatus.LIVE && (
@@ -285,90 +367,100 @@ const ViewerPanel: React.FC<ViewerPanelProps> = ({ status }) => {
                             </span>
                         )}
                     </div>
-                    <p className="text-zinc-400 text-sm leading-relaxed max-w-2xl">
-                        Cerimônia oficial de colação de grau. Acompanhe ao vivo a entrega dos diplomas e as celebrações dos formandos.
-                    </p>
                 </div>
-                <div className="flex items-center gap-3 bg-black/40 p-3 rounded-lg border border-zinc-800/50">
-                    <div className="w-10 h-10 bg-gold-600 rounded flex items-center justify-center text-black font-bold text-xs">
-                        MP
-                    </div>
-                    <div className="text-left">
-                        <p className="text-xs text-zinc-500 uppercase tracking-wider">Transmissão</p>
-                        <p className="text-sm text-gold-500 font-bold">MPLAY SISTEMAS</p>
-                    </div>
+                
+                <div className="flex items-center gap-3">
+                    {/* Only show chat buttons if username is set */}
+                    {username && (
+                        <div className="flex flex-wrap gap-4 border-l border-zinc-800 pl-4">
+                            <button 
+                            onClick={() => setChatOpen(!chatOpen)}
+                            className={`flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-medium transition-all ${chatOpen ? 'bg-gold-600 text-black' : 'bg-zinc-800 hover:bg-zinc-700 text-white'}`}
+                            >
+                                <MessageCircle size={18} />
+                                {chatOpen ? 'Fechar Chat' : 'Bate-papo'}
+                            </button>
+                            <button className="flex items-center gap-2 px-5 py-2.5 bg-zinc-800 hover:bg-zinc-700 rounded-full text-sm text-white font-medium transition-colors group">
+                                <Heart size={18} className="group-hover:text-red-500 transition-colors group-hover:fill-red-500" />
+                                Curtir
+                            </button>
+                        </div>
+                    )}
                 </div>
-            </div>
-            <div className="mt-6 flex flex-wrap gap-4 border-t border-zinc-800 pt-4">
-                <button 
-                  onClick={() => setChatOpen(!chatOpen)}
-                  className={`flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-medium transition-all ${chatOpen ? 'bg-gold-600 text-black' : 'bg-zinc-800 hover:bg-zinc-700 text-white'}`}
-                >
-                    <MessageCircle size={18} />
-                    {chatOpen ? 'Fechar Chat' : 'Chat ao Vivo'}
-                </button>
-                <button className="flex items-center gap-2 px-5 py-2.5 bg-zinc-800 hover:bg-zinc-700 rounded-full text-sm text-white font-medium transition-colors group">
-                    <Heart size={18} className="group-hover:text-red-500 transition-colors group-hover:fill-red-500" />
-                    Curtir Transmissão
-                </button>
             </div>
         </div>
       </div>
 
       {/* Chat Section */}
-      <div className={`fixed inset-y-0 right-0 z-50 w-full sm:w-96 bg-zinc-950/95 backdrop-blur-xl border-l border-zinc-800 flex flex-col transition-transform duration-300 shadow-2xl lg:relative lg:translate-x-0 lg:bg-zinc-900 lg:shadow-none lg:border-l-0 lg:rounded-xl lg:h-auto ${chatOpen ? 'translate-x-0' : 'translate-x-full lg:hidden'}`}>
-        <div className="p-4 border-b border-zinc-800 bg-zinc-950 flex justify-between items-center rounded-t-xl">
-            <div>
-                <h3 className="font-serif text-white text-lg">Chat do Evento</h3>
-                <p className="text-xs text-zinc-500">Tire suas dúvidas com a IA</p>
-            </div>
-            <button onClick={() => setChatOpen(false)} className="lg:hidden p-2 hover:bg-zinc-800 rounded-full text-zinc-400 hover:text-white transition-colors">
-                ✕
-            </button>
-        </div>
-        
-        <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-zinc-900/50 scrollbar-thin scrollbar-thumb-zinc-700 scrollbar-track-transparent">
-            {messages.map((msg) => (
-                <div key={msg.id} className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}>
-                    <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm shadow-sm ${
-                        msg.sender === 'user' 
-                        ? 'bg-zinc-800 text-white rounded-br-none border border-zinc-700' 
-                        : 'bg-gradient-to-br from-gold-900/20 to-zinc-900 border border-gold-500/20 text-gray-200 rounded-bl-none'
-                    }`}>
-                        {msg.sender === 'ai' && (
-                            <div className="flex items-center gap-2 mb-1.5 pb-1 border-b border-gold-500/10">
-                                <span className="text-[10px] text-gold-500 font-bold tracking-wider uppercase">Assistente MPLAY</span>
-                            </div>
-                        )}
-                        {msg.text}
+      {/* Only render chat container if username is set */}
+      {username && (
+          <div className={`fixed inset-y-0 right-0 z-50 w-full sm:w-96 bg-zinc-950/95 backdrop-blur-xl border-l border-zinc-800 flex flex-col transition-transform duration-300 shadow-2xl lg:relative lg:translate-x-0 lg:bg-zinc-900 lg:shadow-none lg:border-l-0 lg:rounded-xl lg:h-auto ${chatOpen ? 'translate-x-0' : 'translate-x-full lg:hidden'}`}>
+            <div className="p-4 border-b border-zinc-800 bg-zinc-950 flex justify-between items-center rounded-t-xl">
+                <div>
+                    <h3 className="font-serif text-white text-lg">Chat da Família</h3>
+                    <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                        <p className="text-xs text-zinc-500">Conectado como <span className="text-white font-bold">{username}</span></p>
                     </div>
-                    <span className="text-[10px] text-zinc-600 mt-1 px-1">
-                        {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
                 </div>
-            ))}
-            <div ref={messagesEndRef} />
-        </div>
-
-        <form onSubmit={handleSendMessage} className="p-4 bg-zinc-950 border-t border-zinc-800 rounded-b-xl">
-            <div className="relative">
-                <input
-                    type="text"
-                    value={chatInput}
-                    onChange={(e) => setChatInput(e.target.value)}
-                    placeholder="Digite sua mensagem..."
-                    className="w-full bg-zinc-900 border border-zinc-800 rounded-full py-3.5 pl-5 pr-14 text-sm text-white focus:outline-none focus:border-gold-500/50 focus:ring-1 focus:ring-gold-500/50 placeholder-zinc-600 transition-all"
-                />
-                <button 
-                    type="submit"
-                    disabled={!chatInput.trim() || isTyping}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-gold-600 hover:bg-gold-500 text-black rounded-full transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:scale-105 active:scale-95"
-                >
-                    <Send size={18} />
+                <button onClick={() => setChatOpen(false)} className="lg:hidden p-2 hover:bg-zinc-800 rounded-full text-zinc-400 hover:text-white transition-colors">
+                    ✕
                 </button>
             </div>
-        </form>
-      </div>
+            
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-zinc-900/50 scrollbar-thin scrollbar-thumb-zinc-700 scrollbar-track-transparent">
+                {messages.length === 0 && (
+                    <div className="text-center text-zinc-600 text-xs py-8">
+                        Seja o primeiro a enviar uma mensagem!
+                    </div>
+                )}
+                {messages.map((msg) => {
+                    const isMe = msg.sender === username;
+                    return (
+                        <div key={msg.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
+                            <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm shadow-sm ${
+                                isMe 
+                                ? 'bg-zinc-800 text-white rounded-br-none border border-zinc-700' 
+                                : 'bg-gradient-to-br from-gold-900/20 to-zinc-900 border border-gold-500/20 text-gray-200 rounded-bl-none'
+                            }`}>
+                                {!isMe && (
+                                    <div className="flex items-center gap-2 mb-1.5 pb-1 border-b border-white/5">
+                                        <span className="text-[10px] font-bold tracking-wider uppercase text-gold-500">
+                                            {msg.sender}
+                                        </span>
+                                    </div>
+                                )}
+                                {msg.text}
+                            </div>
+                            <span className="text-[10px] text-zinc-600 mt-1 px-1">
+                                {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                        </div>
+                    );
+                })}
+                <div ref={messagesEndRef} />
+            </div>
+
+            <form onSubmit={handleSendMessage} className="p-4 bg-zinc-950 border-t border-zinc-800 rounded-b-xl">
+                <div className="relative">
+                    <input
+                        type="text"
+                        value={chatInput}
+                        onChange={(e) => setChatInput(e.target.value)}
+                        placeholder="Digite sua mensagem..."
+                        className="w-full bg-zinc-900 border border-zinc-800 rounded-full py-3.5 pl-5 pr-14 text-sm text-white focus:outline-none focus:border-gold-500/50 focus:ring-1 focus:ring-gold-500/50 placeholder-zinc-600 transition-all"
+                    />
+                    <button 
+                        type="submit"
+                        disabled={!chatInput.trim()}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-gold-600 hover:bg-gold-500 text-black rounded-full transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:scale-105 active:scale-95"
+                    >
+                        <Send size={18} />
+                    </button>
+                </div>
+            </form>
+        </div>
+      )}
     </div>
   );
 };

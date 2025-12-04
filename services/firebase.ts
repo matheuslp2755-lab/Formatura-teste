@@ -1,7 +1,7 @@
 import { initializeApp } from "firebase/app";
-import { getDatabase, ref, onValue, set, push, onChildAdded, remove, child, get } from "firebase/database";
+import { getDatabase, ref, onValue, set, push, onChildAdded, remove, child, get, serverTimestamp } from "firebase/database";
 import { getAuth, signInAnonymously } from "firebase/auth";
-import { StreamStatus } from "../types";
+import { StreamStatus, ChatMessage } from "../types";
 
 // Configuração oficial fornecida pelo usuário
 const firebaseConfig = {
@@ -82,6 +82,7 @@ export const updateStreamStatus = async (status: StreamStatus) => {
       await set(statusRef, status);
       if (status === StreamStatus.ENDED) {
          remove(ref(db, 'stream/viewers'));
+         // Optional: Clear chat on stream end? kept for history for now
       }
     } catch (error) {}
   }
@@ -104,6 +105,33 @@ export const listenToCountdown = (callback: (timestamp: number | null) => void) 
   const unsubscribe = onValue(countdownRef, (snapshot) => {
     callback(snapshot.val());
   });
+  return unsubscribe;
+};
+
+// --- CHAT LOGIC ---
+
+export const sendChatMessage = async (msg: Omit<ChatMessage, 'id'>) => {
+  if (!db) return;
+  const chatRef = ref(db, 'stream/chat');
+  await push(chatRef, msg);
+};
+
+export const listenToChatMessages = (onMessageAdded: (msg: ChatMessage) => void) => {
+  if (!db) return () => {};
+  const chatRef = ref(db, 'stream/chat');
+  
+  // Get existing messages first (optional, but good for history)
+  // Here we just listen for added children which covers history + new
+  const unsubscribe = onChildAdded(chatRef, (snapshot) => {
+    const data = snapshot.val();
+    if (data) {
+      onMessageAdded({
+        id: snapshot.key as string,
+        ...data
+      });
+    }
+  });
+  
   return unsubscribe;
 };
 
