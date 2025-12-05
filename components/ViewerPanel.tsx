@@ -473,11 +473,11 @@ const ViewerPanel: React.FC<ViewerPanelProps> = ({ status }) => {
                         <p className="text-zinc-500 text-sm">A lista de formandos será atualizada em breve.</p>
                     </div>
                 ) : (
-                    <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-thin scrollbar-thumb-zinc-700">
+                    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3">
                         {graduates.map(grad => (
-                            <div key={grad.id} className="flex-shrink-0 group cursor-pointer">
-                                {/* Card size: w-24 h-32 */}
-                                <div className="relative w-24 h-32 rounded-lg overflow-hidden border border-zinc-700 bg-zinc-950 group-hover:border-gold-500 transition-colors">
+                            <div key={grad.id} className="group cursor-pointer">
+                                {/* Card size responsive using aspect-ratio */}
+                                <div className="relative w-full aspect-[3/4] rounded-lg overflow-hidden border border-zinc-700 bg-zinc-950 group-hover:border-gold-500 transition-colors">
                                     {grad.imageUrl && !imgErrors[grad.id] ? (
                                         <img 
                                             src={grad.imageUrl} 
@@ -492,9 +492,9 @@ const ViewerPanel: React.FC<ViewerPanelProps> = ({ status }) => {
                                     )}
                                     
                                     <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-transparent opacity-80"></div>
-                                    <div className="absolute bottom-0 left-0 right-0 p-2">
-                                        <p className="text-white text-xs font-bold leading-tight truncate">{grad.name}</p>
-                                        <p className="text-gold-500 text-[10px] truncate">{grad.course}</p>
+                                    <div className="absolute bottom-0 left-0 right-0 p-1.5 sm:p-2">
+                                        <p className="text-white text-[10px] sm:text-xs font-bold leading-tight truncate">{grad.name}</p>
+                                        <p className="text-gold-500 text-[8px] sm:text-[10px] truncate">{grad.course}</p>
                                     </div>
                                 </div>
                             </div>
