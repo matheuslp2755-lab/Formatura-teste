@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Radio, StopCircle, RefreshCcw, Settings, AlertTriangle, Wifi, WifiOff, Globe, Lock, Copy, ExternalLink, Check, Clock, UserPlus, Trash2, Image as ImageIcon, GraduationCap, MessageSquare } from 'lucide-react';
+import { Radio, StopCircle, RefreshCcw, Settings, AlertTriangle, Wifi, WifiOff, Globe, Lock, Copy, ExternalLink, Check, Clock, UserPlus, Trash2, Image as ImageIcon, GraduationCap, MessageSquare, Maximize, Minimize } from 'lucide-react';
 import { StreamStatus, Graduate, ChatMessage } from '../types';
 import { checkFirebaseConnection, listenForViewers, sendOffer, listenForAnswer, sendIceCandidate, listenForIceCandidates, setStreamCountdown, listenToCountdown, listenToGraduates, addGraduate, removeGraduate, listenToChatMessages, deleteChatMessage } from '../services/firebase';
 
@@ -13,6 +13,7 @@ const iceServers = {
 };
 
 const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const peerConnections = useRef<Map<string, RTCPeerConnection>>(new Map());
@@ -23,6 +24,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [copied, setCopied] = useState(false);
   const [viewerCount, setViewerCount] = useState(0);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   
   // Countdown State
   const [countdownMinutes, setCountdownMinutes] = useState<string>('20');
@@ -229,6 +231,63 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
     setStreamCountdown(null);
   };
 
+  // --- FULLSCREEN LOGIC ---
+  const toggleFullScreen = () => {
+    const videoEl = videoRef.current;
+    const containerEl = containerRef.current;
+
+    if (!videoEl || !containerEl) return;
+
+    // iOS Support
+    if ((videoEl as any).webkitSupportsFullscreen) {
+        if ((videoEl as any).webkitDisplayingFullscreen) {
+            (videoEl as any).webkitExitFullscreen();
+        } else {
+            (videoEl as any).webkitEnterFullscreen();
+        }
+        return;
+    }
+
+    // Standard
+    if (!document.fullscreenElement) {
+        if (containerEl.requestFullscreen) {
+            containerEl.requestFullscreen().then(() => {
+                setIsFullscreen(true);
+            }).catch(err => {
+                console.warn("Fullscreen container failed, trying video fallback:", err);
+                if (videoEl.requestFullscreen) videoEl.requestFullscreen();
+            });
+        }
+    } else {
+        if (document.exitFullscreen) {
+            document.exitFullscreen().then(() => setIsFullscreen(false));
+        }
+    }
+  };
+
+  useEffect(() => {
+    const handleFSChange = () => {
+        setIsFullscreen(!!document.fullscreenElement);
+    };
+    const handleIOSExit = () => {
+        setIsFullscreen(false);
+    };
+
+    document.addEventListener('fullscreenchange', handleFSChange);
+    const videoEl = videoRef.current;
+    if (videoEl) {
+        videoEl.addEventListener('webkitendfullscreen', handleIOSExit);
+    }
+
+    return () => {
+        document.removeEventListener('fullscreenchange', handleFSChange);
+        if (videoEl) {
+            videoEl.removeEventListener('webkitendfullscreen', handleIOSExit);
+        }
+    };
+  }, []);
+
+
   // --- Graduate Management Handlers ---
   const handleAddGraduate = async (e: React.FormEvent) => {
       e.preventDefault();
@@ -253,9 +312,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
   };
 
   const handleRemoveGraduate = async (id: string) => {
-      if (window.confirm("Tem certeza que deseja remover este formando da lista?")) {
-          await removeGraduate(id);
-      }
+      // Immediate deletion (removed confirm)
+      await removeGraduate(id);
   };
   
   const handleAdminDeleteMessage = async (msgId: string) => {
@@ -341,7 +399,10 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
       )}
 
       <div className="bg-zinc-900 rounded-lg overflow-hidden border border-zinc-800 shadow-2xl relative">
-          <div className="aspect-video bg-black relative group flex items-center justify-center overflow-hidden">
+          <div 
+            ref={containerRef}
+            className="aspect-video bg-black relative group flex items-center justify-center overflow-hidden"
+          >
               {hasPermission === false ? (
                   <div className="text-center text-red-500 p-6 flex flex-col items-center max-w-md">
                       <AlertTriangle size={32} className="mb-4" />
@@ -379,9 +440,20 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
                     </div>
 
                     <div className="absolute bottom-6 right-6 z-30 flex gap-2">
-                         <button onClick={toggleCamera} className="p-3 bg-black/50 hover:bg-black/80 text-white rounded-full backdrop-blur-md border border-white/10">
+                         <button 
+                            onClick={toggleCamera} 
+                            className="p-3 bg-black/50 hover:bg-black/80 text-white rounded-full backdrop-blur-md border border-white/10"
+                            title="Inverter Câmera"
+                         >
                             <RefreshCcw size={20} />
                          </button>
+                         <button 
+                            onClick={toggleFullScreen}
+                            className="p-3 bg-black/50 hover:bg-black/80 text-white rounded-full backdrop-blur-md border border-white/10"
+                            title="Tela Cheia"
+                        >
+                            {isFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
+                        </button>
                     </div>
                 </>
               )}
@@ -523,8 +595,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
                                     </div>
                                     <button 
                                         onClick={() => handleRemoveGraduate(grad.id)}
-                                        className="p-1.5 text-zinc-600 hover:text-red-500 hover:bg-red-900/20 rounded transition-colors"
-                                        title="Remover"
+                                        className="p-1.5 text-zinc-600 bg-red-900/10 hover:text-red-500 hover:bg-red-900/30 rounded transition-colors"
+                                        title="Apagar Formando (Foto)"
                                     >
                                         <Trash2 size={14} />
                                     </button>
