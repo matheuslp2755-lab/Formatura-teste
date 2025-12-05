@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Radio, StopCircle, RefreshCcw, Settings, AlertTriangle, Wifi, WifiOff, Globe, Lock, Copy, ExternalLink, Check, Clock } from 'lucide-react';
-import { StreamStatus } from '../types';
-import { checkFirebaseConnection, listenForViewers, sendOffer, listenForAnswer, sendIceCandidate, listenForIceCandidates, setStreamCountdown, listenToCountdown } from '../services/firebase';
+import { Radio, StopCircle, RefreshCcw, Settings, AlertTriangle, Wifi, WifiOff, Globe, Lock, Copy, ExternalLink, Check, Clock, UserPlus, Trash2, Image as ImageIcon, GraduationCap } from 'lucide-react';
+import { StreamStatus, Graduate } from '../types';
+import { checkFirebaseConnection, listenForViewers, sendOffer, listenForAnswer, sendIceCandidate, listenForIceCandidates, setStreamCountdown, listenToCountdown, listenToGraduates, addGraduate, removeGraduate } from '../services/firebase';
 
 interface AdminPanelProps {
   onUpdate: (status: StreamStatus) => void;
@@ -28,6 +28,13 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
   const [countdownMinutes, setCountdownMinutes] = useState<string>('20');
   const [activeCountdown, setActiveCountdown] = useState<number | null>(null);
 
+  // Graduates Management State
+  const [graduates, setGraduates] = useState<Graduate[]>([]);
+  const [newGradName, setNewGradName] = useState('');
+  const [newGradCourse, setNewGradCourse] = useState('');
+  const [newGradImage, setNewGradImage] = useState('');
+  const [isSubmittingGrad, setIsSubmittingGrad] = useState(false);
+
   const [networkStatus, setNetworkStatus] = useState<'checking' | 'connected' | 'denied' | 'error'>('checking');
 
   useEffect(() => {
@@ -46,6 +53,14 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
         setActiveCountdown(timestamp);
     });
     return () => unsubscribe();
+  }, []);
+
+  // Listen for Graduates
+  useEffect(() => {
+      const unsubscribe = listenToGraduates((data) => {
+          setGraduates(data);
+      });
+      return () => unsubscribe();
   }, []);
 
   useEffect(() => {
@@ -200,6 +215,35 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
 
   const handleClearCountdown = () => {
     setStreamCountdown(null);
+  };
+
+  // --- Graduate Management Handlers ---
+  const handleAddGraduate = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!newGradName || !newGradImage) return;
+
+      setIsSubmittingGrad(true);
+      try {
+          await addGraduate({
+              name: newGradName,
+              course: newGradCourse,
+              imageUrl: newGradImage
+          });
+          // Reset form
+          setNewGradName('');
+          setNewGradCourse('');
+          setNewGradImage('');
+      } catch (error) {
+          console.error("Erro ao adicionar formando", error);
+      } finally {
+          setIsSubmittingGrad(false);
+      }
+  };
+
+  const handleRemoveGraduate = async (id: string) => {
+      if (window.confirm("Tem certeza que deseja remover este formando da lista?")) {
+          await removeGraduate(id);
+      }
   };
 
   return (
@@ -385,6 +429,105 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
                 </button>
              )}
           </div>
+      </div>
+
+      {/* Graduates Management Section */}
+      <div className="bg-zinc-900 rounded-lg border border-zinc-800 overflow-hidden">
+        <div className="p-4 bg-zinc-950 border-b border-zinc-800 flex items-center gap-2">
+            <GraduationCap className="text-gold-500" size={20} />
+            <h2 className="text-white font-serif text-lg">Gestão de Formandos</h2>
+        </div>
+        
+        <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {/* Add New Graduate Form */}
+            <div>
+                <h3 className="text-zinc-400 text-xs font-bold uppercase tracking-wider mb-4">Adicionar Novo Formando</h3>
+                <form onSubmit={handleAddGraduate} className="flex flex-col gap-4">
+                    <div>
+                        <label className="block text-xs text-zinc-500 mb-1">Nome Completo</label>
+                        <input 
+                            type="text" 
+                            required
+                            value={newGradName}
+                            onChange={e => setNewGradName(e.target.value)}
+                            placeholder="Ex: Ana Souza"
+                            className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-white focus:outline-none focus:border-gold-500 transition-colors"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-xs text-zinc-500 mb-1">Curso (Opcional)</label>
+                        <input 
+                            type="text" 
+                            value={newGradCourse}
+                            onChange={e => setNewGradCourse(e.target.value)}
+                            placeholder="Ex: Direito"
+                            className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-white focus:outline-none focus:border-gold-500 transition-colors"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-xs text-zinc-500 mb-1">URL da Foto</label>
+                        <div className="flex gap-2">
+                             <div className="relative flex-1">
+                                <ImageIcon size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+                                <input 
+                                    type="url" 
+                                    required
+                                    value={newGradImage}
+                                    onChange={e => setNewGradImage(e.target.value)}
+                                    placeholder="https://exemplo.com/foto.jpg"
+                                    className="w-full bg-zinc-800 border border-zinc-700 rounded pl-10 pr-3 py-2 text-white focus:outline-none focus:border-gold-500 transition-colors"
+                                />
+                             </div>
+                        </div>
+                        <p className="text-[10px] text-zinc-600 mt-1">Cole o link direto da imagem (Imgur, Drive público, etc).</p>
+                    </div>
+
+                    <button 
+                        type="submit" 
+                        disabled={isSubmittingGrad}
+                        className="bg-gold-600 hover:bg-gold-500 text-black font-bold py-2 rounded transition-colors flex items-center justify-center gap-2 mt-2 disabled:opacity-50"
+                    >
+                        <UserPlus size={18} />
+                        Adicionar Formando
+                    </button>
+                </form>
+            </div>
+
+            {/* List of Graduates */}
+            <div className="border-l border-zinc-800 pl-0 lg:pl-8">
+                <h3 className="text-zinc-400 text-xs font-bold uppercase tracking-wider mb-4 flex justify-between items-center">
+                    Lista Atual
+                    <span className="bg-zinc-800 text-white px-2 py-0.5 rounded text-[10px]">{graduates.length}</span>
+                </h3>
+                
+                <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-zinc-700">
+                    {graduates.length === 0 ? (
+                        <div className="text-center py-8 text-zinc-600 text-sm">
+                            Nenhum formando cadastrado.
+                        </div>
+                    ) : (
+                        graduates.map(grad => (
+                            <div key={grad.id} className="flex items-center gap-3 bg-zinc-950 p-2 rounded border border-zinc-800 group hover:border-zinc-700 transition-colors">
+                                <div className="w-10 h-10 rounded bg-zinc-800 overflow-hidden shrink-0">
+                                    <img src={grad.imageUrl} alt={grad.name} className="w-full h-full object-cover" onError={(e) => (e.currentTarget.style.display = 'none')} />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-sm text-white font-medium truncate">{grad.name}</p>
+                                    <p className="text-xs text-zinc-500 truncate">{grad.course}</p>
+                                </div>
+                                <button 
+                                    onClick={() => handleRemoveGraduate(grad.id)}
+                                    className="p-2 text-zinc-600 hover:text-red-500 hover:bg-red-900/20 rounded transition-colors"
+                                    title="Remover"
+                                >
+                                    <Trash2 size={16} />
+                                </button>
+                            </div>
+                        ))
+                    )}
+                </div>
+            </div>
+        </div>
       </div>
     </div>
   );

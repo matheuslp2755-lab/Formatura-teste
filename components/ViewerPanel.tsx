@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Volume2, VolumeX, Maximize, MessageCircle, Send, Users, Heart, Signal, Video, Loader2, Clock, User, Minimize } from 'lucide-react';
-import { StreamStatus, ChatMessage } from '../types';
-import { registerViewer, listenForOffer, sendAnswer, listenForIceCandidates, sendIceCandidate, listenToCountdown, sendChatMessage, listenToChatMessages } from '../services/firebase';
+import { Volume2, VolumeX, Maximize, MessageCircle, Send, Users, Heart, Signal, Video, Loader2, Clock, User, Minimize, GraduationCap, ImageOff } from 'lucide-react';
+import { StreamStatus, ChatMessage, Graduate } from '../types';
+import { registerViewer, listenForOffer, sendAnswer, listenForIceCandidates, sendIceCandidate, listenToCountdown, sendChatMessage, listenToChatMessages, listenToGraduates } from '../services/firebase';
 
 interface ViewerPanelProps {
   status: StreamStatus;
@@ -23,6 +23,10 @@ const ViewerPanel: React.FC<ViewerPanelProps> = ({ status }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
+  // Graduates Data
+  const [graduates, setGraduates] = useState<Graduate[]>([]);
+  const [imgErrors, setImgErrors] = useState<Record<string, boolean>>({});
+
   // Video and WebRTC
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -44,6 +48,16 @@ const ViewerPanel: React.FC<ViewerPanelProps> = ({ status }) => {
   useEffect(() => {
     const unsubscribe = listenToChatMessages((msg) => {
        setMessages((prev) => [...prev, msg]);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Load Graduates Data with real time updates
+  useEffect(() => {
+    const unsubscribe = listenToGraduates((data) => {
+        // Quando receber novos dados, limpa erros de imagem antigos para tentar carregar novamente se a URL mudou
+        setImgErrors({});
+        setGraduates(data);
     });
     return () => unsubscribe();
   }, []);
@@ -208,6 +222,10 @@ const ViewerPanel: React.FC<ViewerPanelProps> = ({ status }) => {
       }
   };
 
+  const handleImgError = (id: string) => {
+    setImgErrors(prev => ({ ...prev, [id]: true }));
+  };
+
   return (
     <div className="flex flex-col lg:flex-row gap-6 max-w-7xl mx-auto w-full relative">
       
@@ -355,11 +373,12 @@ const ViewerPanel: React.FC<ViewerPanelProps> = ({ status }) => {
             )}
         </div>
 
-        {/* Stream Info */}
+        {/* Stream Info + Gallery */}
         <div className="bg-zinc-900 rounded-xl p-6 border border-zinc-800 shadow-xl">
-            <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+            {/* Header / Buttons */}
+            <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-6">
                 <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
+                    <div className="flex items-center gap-3">
                         <h1 className="text-2xl lg:text-3xl font-serif text-white">Formatura EASP 2025</h1>
                         {status === StreamStatus.LIVE && (
                             <span className="bg-red-900/30 text-red-500 border border-red-900/50 text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider">
@@ -387,6 +406,48 @@ const ViewerPanel: React.FC<ViewerPanelProps> = ({ status }) => {
                         </div>
                     )}
                 </div>
+            </div>
+
+            {/* Graduates Gallery Section */}
+            <div className="border-t border-zinc-800 pt-6">
+                <div className="flex items-center gap-2 mb-4">
+                     <GraduationCap className="text-gold-500" size={18} />
+                     <h3 className="text-zinc-400 font-serif text-xs tracking-widest uppercase font-bold">Formandos em Destaque</h3>
+                </div>
+                
+                {graduates.length === 0 ? (
+                    <div className="py-4 text-center border border-dashed border-zinc-800 rounded-lg">
+                        <p className="text-zinc-500 text-sm">A lista de formandos será atualizada em breve.</p>
+                    </div>
+                ) : (
+                    <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-thin scrollbar-thumb-zinc-700">
+                        {graduates.map(grad => (
+                            <div key={grad.id} className="flex-shrink-0 group cursor-pointer">
+                                {/* Card size: w-24 h-32 */}
+                                <div className="relative w-24 h-32 rounded-lg overflow-hidden border border-zinc-700 bg-zinc-950 group-hover:border-gold-500 transition-colors">
+                                    {grad.imageUrl && !imgErrors[grad.id] ? (
+                                        <img 
+                                            src={grad.imageUrl} 
+                                            alt={grad.name} 
+                                            onError={() => handleImgError(grad.id)}
+                                            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                                        />
+                                    ) : (
+                                        <div className="w-full h-full flex flex-col items-center justify-center bg-zinc-900 text-zinc-600">
+                                            {grad.imageUrl ? <ImageOff size={24} className="mb-1" /> : <User size={24} className="mb-1" />}
+                                        </div>
+                                    )}
+                                    
+                                    <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-transparent opacity-80"></div>
+                                    <div className="absolute bottom-0 left-0 right-0 p-2">
+                                        <p className="text-white text-xs font-bold leading-tight truncate">{grad.name}</p>
+                                        <p className="text-gold-500 text-[10px] truncate">{grad.course}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
             </div>
         </div>
       </div>

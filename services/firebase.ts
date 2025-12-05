@@ -1,7 +1,7 @@
 import { initializeApp } from "firebase/app";
 import { getDatabase, ref, onValue, set, push, onChildAdded, remove, child, get, serverTimestamp } from "firebase/database";
 import { getAuth, signInAnonymously } from "firebase/auth";
-import { StreamStatus, ChatMessage } from "../types";
+import { StreamStatus, ChatMessage, Graduate } from "../types";
 
 // Configuração oficial fornecida pelo usuário
 const firebaseConfig = {
@@ -133,6 +133,55 @@ export const listenToChatMessages = (onMessageAdded: (msg: ChatMessage) => void)
   });
   
   return unsubscribe;
+};
+
+// --- GRADUATES LOGIC ---
+
+export const listenToGraduates = (callback: (graduates: Graduate[]) => void) => {
+  if (!db) return () => {};
+  const refPath = ref(db, 'stream/graduates');
+  
+  return onValue(refPath, (snapshot) => {
+    const data = snapshot.val();
+    if (!data) {
+      callback([]);
+      return;
+    }
+
+    // Mapeamento robusto para garantir que 'imageUrl' esteja sempre preenchido
+    // VerificaimageUrl, image, foto, img, thumb, url
+    const list: Graduate[] = Object.entries(data).map(([key, val]: [string, any]) => {
+      const imageSource = 
+        val.imageUrl || 
+        val.image || 
+        val.foto || 
+        val.img || 
+        val.thumb || 
+        val.url || 
+        '';
+
+      return {
+        id: key,
+        name: val.name || 'Formando',
+        course: val.course || '',
+        imageUrl: imageSource
+      };
+    });
+
+    callback(list);
+  });
+};
+
+export const addGraduate = async (graduate: { name: string; course: string; imageUrl: string }) => {
+  if (!db) return;
+  const refPath = ref(db, 'stream/graduates');
+  await push(refPath, graduate);
+};
+
+export const removeGraduate = async (id: string) => {
+  if (!db) return;
+  const refPath = ref(db, `stream/graduates/${id}`);
+  await remove(refPath);
 };
 
 

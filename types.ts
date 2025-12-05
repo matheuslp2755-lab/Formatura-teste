@@ -14,6 +14,13 @@ export interface ChatMessage {
   isMe?: boolean; // Helper for UI rendering (local only)
 }
 
+export interface Graduate {
+  id: string;
+  name: string;
+  course: string;
+  imageUrl: string;
+}
+
 // Helper types for Audio processing
 export interface AudioQueueItem {
   buffer: AudioBuffer;
