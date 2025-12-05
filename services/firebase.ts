@@ -116,19 +116,34 @@ export const sendChatMessage = async (msg: Omit<ChatMessage, 'id'>) => {
   await push(chatRef, msg);
 };
 
-export const listenToChatMessages = (onMessageAdded: (msg: ChatMessage) => void) => {
+export const deleteChatMessage = async (messageId: string) => {
+  if (!db) return;
+  const msgRef = ref(db, `stream/chat/${messageId}`);
+  try {
+    await remove(msgRef);
+  } catch (error) {
+    console.error("Erro ao apagar mensagem:", error);
+    // Silent fail or optional alert handling in UI
+  }
+};
+
+export const listenToChatMessages = (onMessagesUpdate: (msgs: ChatMessage[]) => void) => {
   if (!db) return () => {};
   const chatRef = ref(db, 'stream/chat');
   
-  // Get existing messages first (optional, but good for history)
-  // Here we just listen for added children which covers history + new
-  const unsubscribe = onChildAdded(chatRef, (snapshot) => {
+  // Alterado de onChildAdded para onValue para suportar deleções e sincronização completa da lista
+  const unsubscribe = onValue(chatRef, (snapshot) => {
     const data = snapshot.val();
     if (data) {
-      onMessageAdded({
-        id: snapshot.key as string,
-        ...data
-      });
+      const messagesList = Object.entries(data).map(([key, value]: [string, any]) => ({
+        id: key,
+        ...value
+      }));
+      // Ordenar por timestamp
+      messagesList.sort((a, b) => a.timestamp - b.timestamp);
+      onMessagesUpdate(messagesList);
+    } else {
+      onMessagesUpdate([]);
     }
   });
   

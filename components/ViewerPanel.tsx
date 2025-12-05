@@ -1,7 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Volume2, VolumeX, Maximize, MessageCircle, Send, Users, Heart, Signal, Video, Loader2, Clock, User, Minimize, GraduationCap, ImageOff } from 'lucide-react';
+import { Volume2, VolumeX, Maximize, MessageCircle, Send, Users, Heart, Signal, Video, Loader2, Clock, User, Minimize, GraduationCap, ImageOff, Trash2 } from 'lucide-react';
 import { StreamStatus, ChatMessage, Graduate } from '../types';
-import { registerViewer, listenForOffer, sendAnswer, listenForIceCandidates, sendIceCandidate, listenToCountdown, sendChatMessage, listenToChatMessages, listenToGraduates } from '../services/firebase';
+import { registerViewer, listenForOffer, sendAnswer, listenForIceCandidates, sendIceCandidate, listenToCountdown, sendChatMessage, listenToChatMessages, listenToGraduates, deleteChatMessage } from '../services/firebase';
+// @ts-ignore
+import confetti from 'canvas-confetti';
 
 interface ViewerPanelProps {
   status: StreamStatus;
@@ -46,8 +48,9 @@ const ViewerPanel: React.FC<ViewerPanelProps> = ({ status }) => {
 
   // Load Chat Messages
   useEffect(() => {
-    const unsubscribe = listenToChatMessages((msg) => {
-       setMessages((prev) => [...prev, msg]);
+    // Agora o listener retorna a lista completa atualizada
+    const unsubscribe = listenToChatMessages((msgs) => {
+       setMessages(msgs);
     });
     return () => unsubscribe();
   }, []);
@@ -176,6 +179,11 @@ const ViewerPanel: React.FC<ViewerPanelProps> = ({ status }) => {
     setChatInput('');
   };
 
+  const handleDeleteMessage = async (msgId: string) => {
+    // Immediate action as requested by user ("Quando apertar... deve ser apagado")
+    await deleteChatMessage(msgId);
+  };
+
   const toggleMute = () => {
     if (videoRef.current) {
         videoRef.current.muted = !muted;
@@ -254,6 +262,15 @@ const ViewerPanel: React.FC<ViewerPanelProps> = ({ status }) => {
           setUsername(tempUsername.trim());
           setShowNameModal(false);
           setChatOpen(true);
+          
+          // Trigger Confetti Celebration
+          confetti({
+            particleCount: 150,
+            spread: 70,
+            origin: { y: 0.6 },
+            zIndex: 9999, // Ensure it appears above other elements
+            colors: ['#EAB308', '#FACC15', '#CA8A04', '#FFFFFF'] // Gold & White
+          });
       }
   };
 
@@ -514,20 +531,33 @@ const ViewerPanel: React.FC<ViewerPanelProps> = ({ status }) => {
                 {messages.map((msg) => {
                     const isMe = msg.sender === username;
                     return (
-                        <div key={msg.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
-                            <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm shadow-sm ${
-                                isMe 
-                                ? 'bg-zinc-800 text-white rounded-br-none border border-zinc-700' 
-                                : 'bg-gradient-to-br from-gold-900/20 to-zinc-900 border border-gold-500/20 text-gray-200 rounded-bl-none'
-                            }`}>
-                                {!isMe && (
-                                    <div className="flex items-center gap-2 mb-1.5 pb-1 border-b border-white/5">
-                                        <span className="text-[10px] font-bold tracking-wider uppercase text-gold-500">
-                                            {msg.sender}
-                                        </span>
-                                    </div>
+                        <div key={msg.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} group/msg`}>
+                            <div className="flex items-center gap-2 max-w-[90%]">
+                                {/* Botão de Deletar (Só aparece se for mensagem do usuário) */}
+                                {isMe && (
+                                    <button 
+                                        onClick={() => handleDeleteMessage(msg.id)}
+                                        className="p-2 text-zinc-500 hover:text-red-500 hover:bg-red-500/10 rounded-full transition-colors"
+                                        title="Apagar minha mensagem"
+                                    >
+                                        <Trash2 size={14} />
+                                    </button>
                                 )}
-                                {msg.text}
+
+                                <div className={`flex-1 rounded-2xl px-4 py-3 text-sm shadow-sm ${
+                                    isMe 
+                                    ? 'bg-zinc-800 text-white rounded-br-none border border-zinc-700' 
+                                    : 'bg-gradient-to-br from-gold-900/20 to-zinc-900 border border-gold-500/20 text-gray-200 rounded-bl-none'
+                                }`}>
+                                    {!isMe && (
+                                        <div className="flex items-center gap-2 mb-1.5 pb-1 border-b border-white/5">
+                                            <span className="text-[10px] font-bold tracking-wider uppercase text-gold-500">
+                                                {msg.sender}
+                                            </span>
+                                        </div>
+                                    )}
+                                    {msg.text}
+                                </div>
                             </div>
                             <span className="text-[10px] text-zinc-600 mt-1 px-1">
                                 {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}

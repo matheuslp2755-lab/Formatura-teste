@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Radio, StopCircle, RefreshCcw, Settings, AlertTriangle, Wifi, WifiOff, Globe, Lock, Copy, ExternalLink, Check, Clock, UserPlus, Trash2, Image as ImageIcon, GraduationCap } from 'lucide-react';
-import { StreamStatus, Graduate } from '../types';
-import { checkFirebaseConnection, listenForViewers, sendOffer, listenForAnswer, sendIceCandidate, listenForIceCandidates, setStreamCountdown, listenToCountdown, listenToGraduates, addGraduate, removeGraduate } from '../services/firebase';
+import { Radio, StopCircle, RefreshCcw, Settings, AlertTriangle, Wifi, WifiOff, Globe, Lock, Copy, ExternalLink, Check, Clock, UserPlus, Trash2, Image as ImageIcon, GraduationCap, MessageSquare } from 'lucide-react';
+import { StreamStatus, Graduate, ChatMessage } from '../types';
+import { checkFirebaseConnection, listenForViewers, sendOffer, listenForAnswer, sendIceCandidate, listenForIceCandidates, setStreamCountdown, listenToCountdown, listenToGraduates, addGraduate, removeGraduate, listenToChatMessages, deleteChatMessage } from '../services/firebase';
 
 interface AdminPanelProps {
   onUpdate: (status: StreamStatus) => void;
@@ -35,6 +35,9 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
   const [newGradImage, setNewGradImage] = useState('');
   const [isSubmittingGrad, setIsSubmittingGrad] = useState(false);
 
+  // Chat Moderation State
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+
   const [networkStatus, setNetworkStatus] = useState<'checking' | 'connected' | 'denied' | 'error'>('checking');
 
   useEffect(() => {
@@ -61,6 +64,15 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
           setGraduates(data);
       });
       return () => unsubscribe();
+  }, []);
+
+  // Listen for Chat Messages (For Moderation)
+  useEffect(() => {
+    const unsubscribe = listenToChatMessages((msgs) => {
+        // Reverse for admin view (newest first)
+        setChatMessages([...msgs].reverse());
+    });
+    return () => unsubscribe();
   }, []);
 
   useEffect(() => {
@@ -245,9 +257,14 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
           await removeGraduate(id);
       }
   };
+  
+  const handleAdminDeleteMessage = async (msgId: string) => {
+      // Immediate action for better UX
+      await deleteChatMessage(msgId);
+  };
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-6 pb-20">
       <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div>
             <h1 className="text-xl font-serif text-white flex items-center gap-2">
@@ -431,101 +448,133 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, currentStatus }) => {
           </div>
       </div>
 
-      {/* Graduates Management Section */}
-      <div className="bg-zinc-900 rounded-lg border border-zinc-800 overflow-hidden">
-        <div className="p-4 bg-zinc-950 border-b border-zinc-800 flex items-center gap-2">
-            <GraduationCap className="text-gold-500" size={20} />
-            <h2 className="text-white font-serif text-lg">Gestão de Formandos</h2>
-        </div>
-        
-        <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-8">
-            {/* Add New Graduate Form */}
-            <div>
-                <h3 className="text-zinc-400 text-xs font-bold uppercase tracking-wider mb-4">Adicionar Novo Formando</h3>
-                <form onSubmit={handleAddGraduate} className="flex flex-col gap-4">
-                    <div>
-                        <label className="block text-xs text-zinc-500 mb-1">Nome Completo</label>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Graduates Management Section */}
+        <div className="bg-zinc-900 rounded-lg border border-zinc-800 overflow-hidden flex flex-col h-[500px]">
+            <div className="p-4 bg-zinc-950 border-b border-zinc-800 flex items-center gap-2 shrink-0">
+                <GraduationCap className="text-gold-500" size={20} />
+                <h2 className="text-white font-serif text-lg">Gestão de Formandos</h2>
+            </div>
+            
+            <div className="p-6 flex flex-col h-full overflow-hidden gap-6">
+                {/* Add New Graduate Form */}
+                <div className="shrink-0">
+                    <h3 className="text-zinc-400 text-xs font-bold uppercase tracking-wider mb-4">Adicionar Novo Formando</h3>
+                    <form onSubmit={handleAddGraduate} className="flex flex-col gap-3">
                         <input 
                             type="text" 
                             required
                             value={newGradName}
                             onChange={e => setNewGradName(e.target.value)}
-                            placeholder="Ex: Ana Souza"
-                            className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-white focus:outline-none focus:border-gold-500 transition-colors"
+                            placeholder="Nome Completo"
+                            className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-gold-500 transition-colors"
                         />
-                    </div>
-                    <div>
-                        <label className="block text-xs text-zinc-500 mb-1">Curso (Opcional)</label>
                         <input 
                             type="text" 
                             value={newGradCourse}
                             onChange={e => setNewGradCourse(e.target.value)}
-                            placeholder="Ex: Direito"
-                            className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-white focus:outline-none focus:border-gold-500 transition-colors"
+                            placeholder="Curso (Opcional)"
+                            className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-gold-500 transition-colors"
                         />
-                    </div>
-                    <div>
-                        <label className="block text-xs text-zinc-500 mb-1">URL da Foto</label>
-                        <div className="flex gap-2">
-                             <div className="relative flex-1">
-                                <ImageIcon size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
-                                <input 
-                                    type="url" 
-                                    required
-                                    value={newGradImage}
-                                    onChange={e => setNewGradImage(e.target.value)}
-                                    placeholder="https://exemplo.com/foto.jpg"
-                                    className="w-full bg-zinc-800 border border-zinc-700 rounded pl-10 pr-3 py-2 text-white focus:outline-none focus:border-gold-500 transition-colors"
-                                />
-                             </div>
+                        <div className="relative">
+                            <ImageIcon size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+                            <input 
+                                type="url" 
+                                required
+                                value={newGradImage}
+                                onChange={e => setNewGradImage(e.target.value)}
+                                placeholder="URL da Foto"
+                                className="w-full bg-zinc-800 border border-zinc-700 rounded pl-9 pr-3 py-2 text-white text-sm focus:outline-none focus:border-gold-500 transition-colors"
+                            />
                         </div>
-                        <p className="text-[10px] text-zinc-600 mt-1">Cole o link direto da imagem (Imgur, Drive público, etc).</p>
-                    </div>
 
-                    <button 
-                        type="submit" 
-                        disabled={isSubmittingGrad}
-                        className="bg-gold-600 hover:bg-gold-500 text-black font-bold py-2 rounded transition-colors flex items-center justify-center gap-2 mt-2 disabled:opacity-50"
-                    >
-                        <UserPlus size={18} />
-                        Adicionar Formando
-                    </button>
-                </form>
-            </div>
-
-            {/* List of Graduates */}
-            <div className="border-l border-zinc-800 pl-0 lg:pl-8">
-                <h3 className="text-zinc-400 text-xs font-bold uppercase tracking-wider mb-4 flex justify-between items-center">
-                    Lista Atual
-                    <span className="bg-zinc-800 text-white px-2 py-0.5 rounded text-[10px]">{graduates.length}</span>
-                </h3>
-                
-                <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-zinc-700">
-                    {graduates.length === 0 ? (
-                        <div className="text-center py-8 text-zinc-600 text-sm">
-                            Nenhum formando cadastrado.
-                        </div>
-                    ) : (
-                        graduates.map(grad => (
-                            <div key={grad.id} className="flex items-center gap-3 bg-zinc-950 p-2 rounded border border-zinc-800 group hover:border-zinc-700 transition-colors">
-                                <div className="w-10 h-10 rounded bg-zinc-800 overflow-hidden shrink-0">
-                                    <img src={grad.imageUrl} alt={grad.name} className="w-full h-full object-cover" onError={(e) => (e.currentTarget.style.display = 'none')} />
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                    <p className="text-sm text-white font-medium truncate">{grad.name}</p>
-                                    <p className="text-xs text-zinc-500 truncate">{grad.course}</p>
-                                </div>
-                                <button 
-                                    onClick={() => handleRemoveGraduate(grad.id)}
-                                    className="p-2 text-zinc-600 hover:text-red-500 hover:bg-red-900/20 rounded transition-colors"
-                                    title="Remover"
-                                >
-                                    <Trash2 size={16} />
-                                </button>
-                            </div>
-                        ))
-                    )}
+                        <button 
+                            type="submit" 
+                            disabled={isSubmittingGrad}
+                            className="bg-gold-600 hover:bg-gold-500 text-black font-bold py-2 rounded transition-colors flex items-center justify-center gap-2 mt-1 disabled:opacity-50 text-sm"
+                        >
+                            <UserPlus size={16} />
+                            Adicionar Formando
+                        </button>
+                    </form>
                 </div>
+
+                {/* List of Graduates */}
+                <div className="flex-1 overflow-hidden flex flex-col border-t border-zinc-800 pt-4">
+                    <h3 className="text-zinc-400 text-xs font-bold uppercase tracking-wider mb-2 flex justify-between items-center shrink-0">
+                        Lista Atual
+                        <span className="bg-zinc-800 text-white px-2 py-0.5 rounded text-[10px]">{graduates.length}</span>
+                    </h3>
+                    
+                    <div className="flex-1 overflow-y-auto space-y-2 pr-2 scrollbar-thin scrollbar-thumb-zinc-700">
+                        {graduates.length === 0 ? (
+                            <div className="text-center py-8 text-zinc-600 text-sm">
+                                Nenhum formando cadastrado.
+                            </div>
+                        ) : (
+                            graduates.map(grad => (
+                                <div key={grad.id} className="flex items-center gap-3 bg-zinc-950 p-2 rounded border border-zinc-800 group hover:border-zinc-700 transition-colors">
+                                    <div className="w-8 h-8 rounded bg-zinc-800 overflow-hidden shrink-0">
+                                        <img src={grad.imageUrl} alt={grad.name} className="w-full h-full object-cover" onError={(e) => (e.currentTarget.style.display = 'none')} />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-sm text-white font-medium truncate">{grad.name}</p>
+                                        <p className="text-[10px] text-zinc-500 truncate">{grad.course}</p>
+                                    </div>
+                                    <button 
+                                        onClick={() => handleRemoveGraduate(grad.id)}
+                                        className="p-1.5 text-zinc-600 hover:text-red-500 hover:bg-red-900/20 rounded transition-colors"
+                                        title="Remover"
+                                    >
+                                        <Trash2 size={14} />
+                                    </button>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {/* Chat Moderation Section */}
+        <div className="bg-zinc-900 rounded-lg border border-zinc-800 overflow-hidden flex flex-col h-[500px]">
+            <div className="p-4 bg-zinc-950 border-b border-zinc-800 flex items-center gap-2 shrink-0">
+                <MessageSquare className="text-gold-500" size={20} />
+                <h2 className="text-white font-serif text-lg">Moderação do Chat</h2>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-4 space-y-2 scrollbar-thin scrollbar-thumb-zinc-700">
+                {chatMessages.length === 0 ? (
+                    <div className="text-center py-12 text-zinc-600 text-sm">
+                        Nenhuma mensagem no chat ao vivo.
+                    </div>
+                ) : (
+                    chatMessages.map(msg => (
+                        <div key={msg.id} className="flex items-start gap-3 bg-zinc-950 p-3 rounded border border-zinc-800 hover:border-zinc-700 transition-colors group">
+                            <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 mb-1">
+                                    <span className="text-gold-500 font-bold text-xs uppercase tracking-wider">{msg.sender}</span>
+                                    <span className="text-zinc-600 text-[10px]">
+                                        {new Date(msg.timestamp).toLocaleTimeString()}
+                                    </span>
+                                </div>
+                                <p className="text-zinc-300 text-sm leading-relaxed break-words">{msg.text}</p>
+                            </div>
+                            <button 
+                                onClick={() => handleAdminDeleteMessage(msg.id)}
+                                className="p-2 text-zinc-600 hover:text-red-500 hover:bg-red-900/20 rounded transition-colors"
+                                title="Apagar Mensagem"
+                            >
+                                <Trash2 size={16} />
+                            </button>
+                        </div>
+                    ))
+                )}
+            </div>
+            <div className="p-3 bg-zinc-950 border-t border-zinc-800 text-center">
+                <p className="text-[10px] text-zinc-500">
+                    Mensagens mais recentes aparecem no topo para moderação.
+                </p>
             </div>
         </div>
       </div>
