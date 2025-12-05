@@ -55,7 +55,6 @@ const ViewerPanel: React.FC<ViewerPanelProps> = ({ status }) => {
   // Load Graduates Data with real time updates
   useEffect(() => {
     const unsubscribe = listenToGraduates((data) => {
-        // Quando receber novos dados, limpa erros de imagem antigos para tentar carregar novamente se a URL mudou
         setImgErrors({});
         setGraduates(data);
     });
@@ -108,10 +107,8 @@ const ViewerPanel: React.FC<ViewerPanelProps> = ({ status }) => {
        const viewerId = 'viewer_' + Math.random().toString(36).substr(2, 9);
        
        const startConnection = async () => {
-         // 1. Announce presence
          await registerViewer(viewerId);
 
-         // 2. Wait for Offer from Admin
          listenForOffer(viewerId, async (offer) => {
             console.log("Oferta recebida do Admin");
             
@@ -170,7 +167,6 @@ const ViewerPanel: React.FC<ViewerPanelProps> = ({ status }) => {
     e.preventDefault();
     if (!chatInput.trim() || !username) return;
 
-    // Send to Firebase
     await sendChatMessage({
         sender: username,
         text: chatInput,
@@ -187,37 +183,76 @@ const ViewerPanel: React.FC<ViewerPanelProps> = ({ status }) => {
     }
   };
 
+  // --- FULLSCREEN LOGIC FIX ---
   const toggleFullScreen = () => {
-    if (!containerRef.current) return;
+    const videoEl = videoRef.current;
+    const containerEl = containerRef.current;
 
+    if (!videoEl || !containerEl) return;
+
+    // 1. Suporte Específico para iOS (iPhone)
+    // O iOS não suporta Fullscreen API em divs, apenas webkitEnterFullscreen no elemento de vídeo.
+    if ((videoEl as any).webkitSupportsFullscreen) {
+        if ((videoEl as any).webkitDisplayingFullscreen) {
+            (videoEl as any).webkitExitFullscreen();
+        } else {
+            (videoEl as any).webkitEnterFullscreen();
+        }
+        return;
+    }
+
+    // 2. Suporte Padrão (Android, Desktop)
     if (!document.fullscreenElement) {
-        containerRef.current.requestFullscreen().then(() => {
-            setIsFullscreen(true);
-        }).catch(err => {
-            console.error(`Error attempting to enable full-screen mode: ${err.message} (${err.name})`);
-        });
+        if (containerEl.requestFullscreen) {
+            containerEl.requestFullscreen().then(() => {
+                setIsFullscreen(true);
+            }).catch(err => {
+                console.warn("Fullscreen container failed, trying video fallback:", err);
+                // Fallback: Tenta fullscreen direto no vídeo se o container falhar
+                if (videoEl.requestFullscreen) videoEl.requestFullscreen();
+            });
+        }
     } else {
-        document.exitFullscreen().then(() => {
-            setIsFullscreen(false);
-        });
+        if (document.exitFullscreen) {
+            document.exitFullscreen().then(() => setIsFullscreen(false));
+        }
     }
   };
 
-  // Detect fullscreen change via ESC key
+  // Listeners para detectar saída do modo Fullscreen (via ESC ou botão nativo do celular)
   useEffect(() => {
     const handleFSChange = () => {
         setIsFullscreen(!!document.fullscreenElement);
     };
+
+    // iOS dispara 'webkitendfullscreen' quando o usuário fecha o player nativo
+    const handleIOSExit = () => {
+        setIsFullscreen(false);
+    };
+
+    // Standard
     document.addEventListener('fullscreenchange', handleFSChange);
-    return () => document.removeEventListener('fullscreenchange', handleFSChange);
-  }, []);
+    
+    // iOS Listener
+    const videoEl = videoRef.current;
+    if (videoEl) {
+        videoEl.addEventListener('webkitendfullscreen', handleIOSExit);
+    }
+
+    return () => {
+        document.removeEventListener('fullscreenchange', handleFSChange);
+        if (videoEl) {
+            videoEl.removeEventListener('webkitendfullscreen', handleIOSExit);
+        }
+    };
+  }, [status]); // Re-bind se o status mudar (pois o elemento de vídeo é recriado)
+
 
   const handleNameSubmit = (e: React.FormEvent) => {
       e.preventDefault();
       if (tempUsername.trim()) {
           setUsername(tempUsername.trim());
           setShowNameModal(false);
-          // Auto open chat if desired, or let them open it
           setChatOpen(true);
       }
   };
@@ -236,7 +271,7 @@ const ViewerPanel: React.FC<ViewerPanelProps> = ({ status }) => {
                 <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-gold-500 to-transparent"></div>
                 
                 <div className="flex flex-col items-center text-center mb-6">
-                    <div className="w-16 h-16 bg-zinc-950 rounded-full flex items-center justify-center border border-zinc-800 mb-4 text-gold-500">
+                    <div className="w-16 h-16 bg-zinc-900 rounded-full flex items-center justify-center border border-zinc-800 mb-4 text-gold-500">
                         <User size={32} />
                     </div>
                     <h2 className="text-2xl font-serif text-white">Bem-vindo(a)</h2>
@@ -293,6 +328,7 @@ const ViewerPanel: React.FC<ViewerPanelProps> = ({ status }) => {
                     autoPlay
                     playsInline
                     muted={muted}
+                    // Importante para iOS não abrir fullscreen automaticamente, permitindo nosso controle
                   />
                   
                   {/* Connecting State */}
